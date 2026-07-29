@@ -70,6 +70,9 @@
               <text>{{ card.meaning }}</text>
               <text class="phonetic-muted" v-if="card.phonetic">{{ card.phonetic }}</text>
             </view>
+            <view class="word-reveal" @click="showFullWord = !showFullWord">
+              <text>{{ showFullWord ? card.word : '👆 点击显示完整单词' }}</text>
+            </view>
             <SpellInput
               v-model="spellValue"
               :disabled="submitting"
@@ -123,6 +126,7 @@ export default {
       spellRequired: 1,
       submitting: false,
       hatching: false,
+      showFullWord: false,
     };
   },
   computed: {
@@ -162,7 +166,6 @@ export default {
       this.submitting = true;
       try {
         if (!ok) {
-          // 拼写错误
           await feedCard(this.cardId, { spell_correct: false });
           uni.showToast({ title: '拼写错误，单词很伤心 😢', icon: 'none' });
           this.spellValue = '';
@@ -170,7 +173,6 @@ export default {
           return;
         }
 
-        // 拼写正确
         const res = await feedCard(this.cardId, { spell_correct: true });
         if (res.data) {
           this.spellCount = res.data.count;
@@ -182,7 +184,6 @@ export default {
             await store.fetchCards(true);
             setTimeout(() => uni.navigateBack(), 1000);
           } else {
-            // Lv.1 还需再喂一次
             uni.showToast({ title: res.data.message || `拼写正确 (${res.data.count}/${res.data.required})`, icon: 'none' });
             this.spellValue = '';
             await this.loadCard();
@@ -499,7 +500,7 @@ export default {
   padding: 16rpx;
   background: #f0f8ff;
   border-radius: 12rpx;
-  margin-bottom: 20rpx;
+  margin-bottom: 12rpx;
 }
 
 .word-hint text {
@@ -512,6 +513,18 @@ export default {
   font-size: 24rpx !important;
   color: #999 !important;
   margin-top: 4rpx;
+}
+
+/* 点击显示完整单词 */
+.word-reveal {
+  text-align: center;
+  padding: 12rpx;
+  margin-bottom: 16rpx;
+  font-size: 26rpx;
+  color: #999;
+  background: #fafafa;
+  border-radius: 12rpx;
+  border: 1rpx dashed #e0e0e0;
 }
 
 .level-next {
