@@ -1,0 +1,10 @@
+node_modules/
+server-ts/node_modules/
+server-ts/dist/
+.DS_Store
+*.log
+.env
+.env.local
+*.local
+unpackage/
+dist/

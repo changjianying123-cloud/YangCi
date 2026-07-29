@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",              // 编译目标为 ES2020，支持较新的 JS 语法
+    "module": "commonjs",            // Node.js 默认的模块系统
+    "lib": ["ES2020"],               // 引入 ES2020 的类型定义库
+    "outDir": "./dist",              // 编译后的 JS 文件输出到 dist 目录
+    "rootDir": "./src",              // 源代码所在的根目录
+    "strict": true,                  // 开启严格模式，提供最强的类型检查
+    "esModuleInterop": true,         // 允许使用 import 语法导入 CommonJS 模块（如 express）
+    "skipLibCheck": true,            // 跳过第三方库的类型检查，加快编译速度
+    "forceConsistentCasingInFileNames": true, // 强制文件名大小写一致，避免跨平台问题
+    "sourceMap": true,               // 生成 source-map，方便在调试时映射回 TS 源码
+    "resolveJsonModule": true        // 允许在代码中直接 import JSON 文件
+  },
+  "include": ["src/**/*"],           // 指定需要编译的源码目录
+  "exclude": ["node_modules", "dist"] // 排除不需要编译的目录
+}
