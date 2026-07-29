@@ -18,7 +18,10 @@
       <view v-else>
         <view class="card-header">
           <view class="level-tag">{{ levelLabel }}</view>
-          <text class="status-tag">{{ statusText }}</text>
+          <view class="header-right">
+            <text class="mood-tag">{{ moodEmoji }}</text>
+            <text class="status-tag">{{ statusText }}</text>
+          </view>
         </view>
         <text class="word">{{ card.word }}</text>
         <text class="meaning">{{ card.meaning }}</text>
@@ -35,7 +38,7 @@
 </template>
 
 <script>
-import { cardStatusText, levelLabel } from '@/utils/common.js';
+import { cardStatusText, levelLabel, moodSymbol } from '@/utils/common.js';
 
 const CARD_STYLES = {
   egg: '#e0e0e0',
@@ -58,6 +61,9 @@ export default {
     levelLabel() {
       return levelLabel(this.card.level);
     },
+    moodEmoji() {
+      return moodSymbol(this.card.mood);
+    },
     cardStyle() {
       if (this.card.isEgg) return { background: CARD_STYLES.egg };
       return { background: CARD_STYLES[this.card.status] || CARD_STYLES.normal };
@@ -65,11 +71,6 @@ export default {
   },
   methods: {
     handleClick() {
-      if (this.card.isEgg) {
-        // 单词蛋可以点击去孵化
-        this.$emit('click', this.card);
-        return;
-      }
       this.$emit('click', this.card);
     },
   },
@@ -147,12 +148,22 @@ export default {
   z-index: 1;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
 .level-tag {
   font-size: 20rpx;
   color: #fff;
   background: rgba(0, 0, 0, 0.2);
   padding: 4rpx 12rpx;
   border-radius: 8rpx;
+}
+
+.mood-tag {
+  font-size: 24rpx;
 }
 
 .status-tag {

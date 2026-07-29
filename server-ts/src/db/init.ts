@@ -149,5 +149,16 @@ export async function initDatabase() {
     );
   }
 
+  // 迁移：添加新字段
+  const migrations = [
+    `ALTER TABLE user_cards ADD COLUMN remedial_feed_at BIGINT DEFAULT NULL AFTER feed_spell_count`,
+    `ALTER TABLE user_cards ADD COLUMN had_wrong_attempt TINYINT(1) DEFAULT 0 AFTER remedial_feed_at`,
+    `ALTER TABLE user_cards ADD COLUMN abandoned TINYINT(1) DEFAULT 0 AFTER had_wrong_attempt`,
+    `ALTER TABLE user_cards ADD COLUMN abandoned_at BIGINT DEFAULT NULL AFTER abandoned`,
+  ];
+  for (const sql of migrations) {
+    try { await pool.execute(sql); } catch (_) { /* 列已存在则忽略 */ }
+  }
+
   console.log('MySQL 数据库表初始化完成');
 }

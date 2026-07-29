@@ -8,7 +8,7 @@ const router = Router();
 router.get('/random', authMiddleware, async (req: Request, res: Response) => {
   const bookCode = req.query.book_code as string;
   if (!bookCode) return fail(res, 400, '缺少 book_code 参数');
-  const word = await getRandomWord(bookCode);
+  const word = await getRandomWord(req.userId!, bookCode);
   if (!word) return ok(res, null, '该词书暂无可收服单词');
   ok(res, word);
 });

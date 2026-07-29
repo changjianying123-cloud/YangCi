@@ -21,18 +21,34 @@ export const config = {
   devMockWx: process.env.DEV_MOCK_WX !== 'false',
   importSecret: process.env.IMPORT_SECRET || 'yangci_import_dev',
   card: {
+    // 艾宾浩斯遗忘曲线喂养间隔（毫秒）
+    // Lv.1=20分钟, Lv.2=12小时, Lv.3=1天, Lv.4=2天, Lv.5=4天, Lv.6=7天, Lv.7=15天
     feedIntervals: [
-      2 * 60 * 1000,          // Lv.1: 2分钟（测试用）
-      10 * 60 * 1000,         // Lv.2: 10分钟
-      60 * 60 * 1000,         // Lv.3: 1小时（测试用）
-      120 * 60 * 1000,        // Lv.4: 2小时
-      240 * 60 * 1000,        // Lv.5: 4小时
+      20 * 60 * 1000,          // Lv.1: 20分钟
+      12 * 60 * 60 * 1000,     // Lv.2: 12小时
+      24 * 60 * 60 * 1000,     // Lv.3: 1天
+      2 * 24 * 60 * 60 * 1000, // Lv.4: 2天
+      4 * 24 * 60 * 60 * 1000, // Lv.5: 4天
+      7 * 24 * 60 * 60 * 1000, // Lv.6: 7天
+      15 * 24 * 60 * 60 * 1000, // Lv.7: 15天
     ],
-    feedSpellCount: 3,
-    downgradeThresholdMs: 24 * 60 * 60 * 1000,
-    eggThresholdMs: 72 * 60 * 60 * 1000,
-    maxLevel: 5,
+    // 饥饿窗口期：到点后2小时内必须喂养，否则饥饿
+    hungerWindowMs: 2 * 60 * 60 * 1000,
+    // 饥饿后降级等待时间：1小时不喂就降级
+    downgradeThresholdMs: 1 * 60 * 60 * 1000,
+    // 最大等级
+    maxLevel: 8,
+    // 每个喂养窗口只需拼写正确1次
+    feedSpellCount: 1,
+    // Lv.1 需要喂养2次才能升到Lv.2
+    maxLv1FeedCount: 2,
+    // 变成单词蛋的阈值（超时30天）
+    eggThresholdMs: 30 * 24 * 60 * 60 * 1000,
+    // 收服所需正确次数
     catchRequiredCorrect: 6,
+    // 喂养窗口长度
     feedWindowMs: 2 * 60 * 60 * 1000,
+    // 拼写错误后补救喂养延迟
+    remedialFeedDelayMs: 2 * 60 * 60 * 1000,
   },
 };

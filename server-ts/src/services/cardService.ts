@@ -1,22 +1,36 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { config } from '../config';
 import { pool } from '../db/pool';
-import { CardDTO, CardStatus, UserCardRow } from '../types';
-import { buildAudioUrl, computeCardStatus, canFeedNow, nextFeedSchedule, downgradeSchedule } from '../utils/cardStatus';
+import { CardDTO, CardStatus, MoodType, UserCardRow } from '../types';
+import {
+  buildAudioUrl,
+  computeCardStatus,
+  canFeedNow,
+  nextFeedSchedule,
+  downgradeSchedule,
+  getWindowInfo,
+  getRemedialInfo,
+  getLv1Info,
+} from '../utils/cardStatus';
 
 function toCardDTO(row: UserCardRow): CardDTO {
   const now = Date.now();
   const isEgg = row.is_egg === 1;
-
   const status = computeCardStatus(
-    row.level,
-    row.feed_deadline,
-    row.feed_window_end,
-    row.hunger_start_at,
-    row.downgrade_count,
-    isEgg,
-    now
+    row.level, row.feed_deadline, row.feed_window_end,
+    row.hunger_start_at, row.downgrade_count, isEgg, now
   );
+
+  const windowInfo = getWindowInfo(row.feed_deadline, row.feed_window_end, now);
+  const remedialInfo = getRemedialInfo(row.remedial_feed_at ?? null, now);
+  const lv1Info = getLv1Info(row.level, row.feed_spell_count || 0);
+
+  // 心情：本轮拼写错过 → sad
+  let mood: MoodType = 'none';
+  if (row.had_wrong_attempt === 1) mood = 'sad';
+
+  // 是否可以喂养（含补救窗口）
+  const canFeed = canFeedNow(row.level, row.feed_deadline, row.feed_window_end, isEgg, row.remedial_feed_at ?? null, now);
 
   return {
     id: row.id,
@@ -34,34 +48,31 @@ function toCardDTO(row: UserCardRow): CardDTO {
     downgradeCount: row.downgrade_count,
     isEgg,
     status,
-    canFeed: canFeedNow(row.level, row.feed_deadline, row.feed_window_end, isEgg, now),
+    canFeed,
     feedSpellCount: row.feed_spell_count || 0,
     feedSpellRequired: config.card.feedSpellCount,
-    nextFeedIn: formatNextFeedIn(row.feed_deadline, row.feed_window_end, now),
+    nextFeedIn: remedialInfo.hasRemedial ? remedialInfo.humanReadable : windowInfo.humanReadable,
+    mood,
+    hasRemedial: remedialInfo.hasRemedial && !remedialInfo.canFeedRemedial,
+    remedialFeedAt: row.remedial_feed_at ?? null,
+    isLv1: lv1Info.isLv1,
+    lv1FeedProgress: lv1Info.progress,
+    hasRemedialWindow: remedialInfo.canFeedRemedial,
   };
 }
 
-function formatNextFeedIn(feedDeadline: number, feedWindowEnd: number, now: number): string {
-  if (now < feedDeadline) {
-    const diff = feedDeadline - now;
-    if (diff < 60 * 1000) return '即将可以喂养';
-    if (diff < 60 * 60 * 1000) return `${Math.ceil(diff / (60 * 1000))}分钟后可以喂养`;
-    if (diff < 24 * 60 * 60 * 1000) return `${Math.ceil(diff / (60 * 60 * 1000))}小时后可以喂养`;
-    return `${Math.ceil(diff / (24 * 60 * 60 * 1000))}天后可以喂养`;
-  }
-  if (now < feedWindowEnd) return '🍼 可喂养';
-  return '⏰ 已超时';
-}
-
 /**
- * 检测并更新饥饿→降级
+ * 饥饿→降级检测及执行
  */
-async function applyHungerDowngrade(rows: UserCardRow[], now: number) {
+async function processHungerDowngrade(rows: UserCardRow[], now: number) {
   for (const row of rows) {
-    if (row.is_egg || row.level <= 0) continue;
+    if (row.is_egg || row.level <= 0 || row.abandoned) continue;
 
-    // 在窗口期内，重置饥饿标记
-    if (now >= row.feed_deadline && now < row.feed_window_end) {
+    // 正常窗口或补救窗口内 → 清除饥饿标记
+    const inNormalWindow = now >= row.feed_deadline && now < row.feed_window_end;
+    const inRemedial = row.remedial_feed_at && now >= row.remedial_feed_at && now < row.remedial_feed_at + config.card.hungerWindowMs;
+
+    if (inNormalWindow || inRemedial) {
       if (row.hunger_start_at !== null) {
         await pool.execute('UPDATE user_cards SET hunger_start_at = NULL WHERE id = ?', [row.id]);
         row.hunger_start_at = null;
@@ -69,7 +80,13 @@ async function applyHungerDowngrade(rows: UserCardRow[], now: number) {
       continue;
     }
 
-    // 超过窗口期→进入饥饿
+    // 超过补救窗口 → 清除补救标记
+    if (row.remedial_feed_at && now >= row.remedial_feed_at + config.card.hungerWindowMs) {
+      await pool.execute('UPDATE user_cards SET remedial_feed_at = NULL WHERE id = ?', [row.id]);
+      row.remedial_feed_at = null;
+    }
+
+    // 超过正常窗口 → 饥饿
     if (now >= row.feed_window_end) {
       if (row.hunger_start_at === null) {
         await pool.execute('UPDATE user_cards SET hunger_start_at = ? WHERE id = ?', [now, row.id]);
@@ -77,17 +94,24 @@ async function applyHungerDowngrade(rows: UserCardRow[], now: number) {
         continue;
       }
 
-      // 饥饿超过降级阈值→降级
+      // 饥饿超过降级阈值 → 降级
       if (now >= row.hunger_start_at + config.card.downgradeThresholdMs) {
         const sd = downgradeSchedule(row.level, now);
         await pool.execute(
-          `UPDATE user_cards SET level = ?, feed_deadline = ?, feed_window_end = ?, hunger_start_at = NULL, downgrade_count = downgrade_count + 1 WHERE id = ?`,
+          `UPDATE user_cards
+           SET level = ?, feed_deadline = ?, feed_window_end = ?,
+               hunger_start_at = NULL, downgrade_count = downgrade_count + 1,
+               feed_spell_count = 0, had_wrong_attempt = 0, remedial_feed_at = NULL
+           WHERE id = ?`,
           [sd.level, sd.feedDeadline, sd.feedWindowEnd, row.id]
         );
         row.level = sd.level;
         row.feed_deadline = sd.feedDeadline;
         row.feed_window_end = sd.feedWindowEnd;
         row.hunger_start_at = null;
+        row.feed_spell_count = 0;
+        row.had_wrong_attempt = 0;
+        row.remedial_feed_at = null;
       }
     }
   }
@@ -100,7 +124,7 @@ export async function listUserCards(userId: number): Promise<CardDTO[]> {
      FROM user_cards uc
      JOIN words w ON w.id = uc.word_id
      JOIN books b ON b.id = w.book_id
-     WHERE uc.user_id = ?
+     WHERE uc.user_id = ? AND (uc.abandoned IS NULL OR uc.abandoned = 0)
      ORDER BY
        CASE
          WHEN uc.is_egg = 1 THEN 4
@@ -112,7 +136,7 @@ export async function listUserCards(userId: number): Promise<CardDTO[]> {
        uc.feed_deadline ASC`,
     [userId, now, now, now, config.card.downgradeThresholdMs]
   );
-  await applyHungerDowngrade(rows, now);
+  await processHungerDowngrade(rows, now);
   return rows.map(toCardDTO);
 }
 
@@ -122,83 +146,192 @@ export async function getCardDetail(userId: number, cardId: number): Promise<Car
      FROM user_cards uc
      JOIN words w ON w.id = uc.word_id
      JOIN books b ON b.id = w.book_id
-     WHERE uc.id = ? AND uc.user_id = ?`,
+     WHERE uc.id = ? AND uc.user_id = ? AND (uc.abandoned IS NULL OR uc.abandoned = 0)`,
     [cardId, userId]
   );
   if (!rows[0]) return null;
   return toCardDTO(rows[0]);
 }
 
+/**
+ * 获取升级所需喂养次数
+ */
+function getRequiredFeedsForLevel(level: number): number {
+  if (level === 1) return config.card.maxLv1FeedCount;
+  return config.card.feedSpellCount;
+}
+
 export async function feedCard(userId: number, cardId: number, spellCorrect: boolean) {
   const now = Date.now();
+
   const [rows] = await pool.execute<UserCardRow[]>(
-    `SELECT * FROM user_cards WHERE id = ? AND user_id = ?`,
+    `SELECT uc.* FROM user_cards uc WHERE uc.id = ? AND uc.user_id = ?`,
     [cardId, userId]
   );
   if (!rows[0]) throw new Error('卡牌不存在');
   const row = rows[0];
 
   if (row.is_egg) throw new Error('单词蛋需要孵化，不能喂养');
-  if (now < row.feed_deadline || now >= row.feed_window_end) throw new Error('现在不是喂养时间');
+  if (row.abandoned) throw new Error('该卡牌已被遗弃');
 
-  // 拼写错误
-  if (!spellCorrect) {
-    return { done: false, spellCorrect: false, count: row.feed_spell_count || 0, required: config.card.feedSpellCount };
+  // 检查是否在可喂养窗口内
+  const inNormalWindow = now >= row.feed_deadline && now < row.feed_window_end;
+  const remedialStart = row.remedial_feed_at || 0;
+  const inRemedialWindow = row.remedial_feed_at && now >= remedialStart && now < remedialStart + config.card.hungerWindowMs;
+
+  if (!inNormalWindow && !inRemedialWindow) {
+    throw new Error('现在不是喂养时间');
   }
 
-  // 拼写正确
-  const currentCount = (row.feed_spell_count || 0) + 1;
-
-  // 检查是否达到需要拼写的次数
-  if (currentCount >= config.card.feedSpellCount) {
-    // 升级到下一阶段
-    const sd = nextFeedSchedule(row.level, now);
+  // ── 拼写错误 ──
+  if (!spellCorrect) {
     await pool.execute(
-      `UPDATE user_cards SET level = ?, feed_deadline = ?, feed_window_end = ?, last_feed_at = ?, hunger_start_at = NULL, downgrade_count = 0, feed_spell_count = 0 WHERE id = ?`,
-      [sd.level, sd.feedDeadline, sd.feedWindowEnd, now, cardId]
+      'UPDATE user_cards SET had_wrong_attempt = 1 WHERE id = ?',
+      [cardId]
+    );
+    return {
+      done: false,
+      spellCorrect: false,
+      mood: 'sad' as MoodType,
+      moodEmoji: '😢',
+      count: row.feed_spell_count || 0,
+      required: getRequiredFeedsForLevel(row.level),
+      level: row.level,
+      hadWrong: true,
+      message: '拼写错误，单词很伤心 😢',
+    };
+  }
+
+  // ── 拼写正确 ──
+  const currentCount = (row.feed_spell_count || 0) + 1;
+  const hadWrong = row.had_wrong_attempt === 1;
+  const requiredFeeds = getRequiredFeedsForLevel(row.level);
+
+  // 本轮是否有补救窗口，且本次喂养是否在补救窗口中
+  const feedingInRemedialWindow = inRemedialWindow && row.remedial_feed_at !== null;
+
+  if (currentCount >= requiredFeeds) {
+    // ⭐ 达到升级条件
+    const sd = nextFeedSchedule(row.level, currentCount, now);
+
+    // 如果本轮有错误但不是在补救窗口中喂养的，安排2小时后补救
+    let remedialFeedAt: number | null = null;
+    if (hadWrong && !feedingInRemedialWindow) {
+      remedialFeedAt = now + config.card.remedialFeedDelayMs;
+    }
+
+    await pool.execute(
+      `UPDATE user_cards
+       SET level = ?, feed_deadline = ?, feed_window_end = ?,
+           last_feed_at = ?, hunger_start_at = NULL,
+           downgrade_count = 0, is_egg = 0, feed_spell_count = 0,
+           had_wrong_attempt = 0, remedial_feed_at = ?
+       WHERE id = ?`,
+      [sd.level, sd.feedDeadline, sd.feedWindowEnd, now, remedialFeedAt, cardId]
     );
 
     await pool.execute<ResultSetHeader>(
-      'INSERT INTO feed_logs (user_id, card_id, spell_correct, read_aloud_clicked) VALUES (?, ?, ?, ?)',
-      [userId, cardId, 1, 0]
+      'INSERT INTO feed_logs (user_id, card_id, spell_correct) VALUES (?, ?, ?)',
+      [userId, cardId, 1]
     );
 
-    return { done: true, count: currentCount, required: config.card.feedSpellCount };
+    const mood: MoodType = hadWrong && !feedingInRemedialWindow ? 'happy' : 'happy';
+    const moodEmoji = mood === 'happy' ? (hadWrong ? '😆' : '😊') : '😊';
+
+    return {
+      done: true,
+      spellCorrect: true,
+      mood,
+      moodEmoji,
+      count: currentCount,
+      required: requiredFeeds,
+      level: sd.level,
+      feedDeadline: sd.feedDeadline,
+      feedWindowEnd: sd.feedWindowEnd,
+      status: 'normal' as CardStatus,
+      nextFeedIn: getWindowInfo(sd.feedDeadline, sd.feedWindowEnd, now).humanReadable,
+      hadWrong,
+      hasRemedial: !feedingInRemedialWindow && hadWrong,
+      message: hadWrong
+        ? `拼写正确！${moodEmoji} 但之前拼写错过，需在2小时后额外补救喂养一次`
+        : `拼写正确！${moodEmoji} 喂养成功！`,
+    };
   } else {
-    // 还没拼够次数，更新计数
-    await pool.execute('UPDATE user_cards SET feed_spell_count = ? WHERE id = ?', [currentCount, cardId]);
-    return { done: false, count: currentCount, required: config.card.feedSpellCount };
+    // Lv.1 还需要再喂一次
+    let remedialFeedAt: number | null = null;
+    if (hadWrong && !feedingInRemedialWindow) {
+      remedialFeedAt = now + config.card.remedialFeedDelayMs;
+    }
+
+    await pool.execute(
+      `UPDATE user_cards
+       SET feed_spell_count = ?, had_wrong_attempt = 0, remedial_feed_at = ?
+       WHERE id = ?`,
+      [currentCount, remedialFeedAt, cardId]
+    );
+
+    const remaining = requiredFeeds - currentCount;
+    return {
+      done: false,
+      spellCorrect: true,
+      mood: 'happy' as MoodType,
+      moodEmoji: '😊',
+      count: currentCount,
+      required: requiredFeeds,
+      level: row.level,
+      isLv1Second: true,
+      hadWrong,
+      hasRemedial: hadWrong,
+      message: `拼写正确！😊 还需 ${remaining} 次喂养才升级`,
+    };
   }
 }
 
 export async function getPendingFeedCards(userId: number) {
   const cards = await listUserCards(userId);
-  return cards.filter((c) => c.status === 'incubating' || c.status === 'hungry');
+  return cards.filter((c) => c.canFeed);
 }
 
 export async function getCardCount(userId: number) {
   const [rows] = await pool.execute<RowDataPacket[]>(
-    'SELECT COUNT(*) AS count FROM user_cards WHERE user_id = ?',
+    'SELECT COUNT(*) AS count FROM user_cards WHERE user_id = ? AND (abandoned IS NULL OR abandoned = 0)',
     [userId]
   );
   return Number(rows[0].count) || 0;
 }
 
-/**
- * 孵化单词蛋
- */
 export async function hatchEgg(userId: number, cardId: number): Promise<CardDTO> {
   const card = await getCardDetail(userId, cardId);
   if (!card) throw new Error('卡牌不存在');
-  if (!card.isEgg) throw new Error('这不是单词蛋，无需孵化');
+  if (!card.isEgg) throw new Error('这不是单词蛋');
 
   const now = Date.now();
-  const sd = nextFeedSchedule(0, now);
+  const sd = nextFeedSchedule(0, 0, now);
 
   await pool.execute(
-    `UPDATE user_cards SET level = ?, feed_deadline = ?, feed_window_end = ?, last_feed_at = ?, hunger_start_at = NULL, downgrade_count = 0, is_egg = 0, feed_spell_count = 0 WHERE id = ?`,
-    [sd.level, sd.feedDeadline, sd.feedWindowEnd, now, cardId]
+    `UPDATE user_cards
+     SET level = ?, feed_deadline = ?, feed_window_end = ?,
+         last_feed_at = ?, hunger_start_at = NULL, downgrade_count = 0,
+         is_egg = 0, feed_spell_count = 0, had_wrong_attempt = 0, remedial_feed_at = NULL
+     WHERE id = ? AND user_id = ?`,
+    [sd.level, sd.feedDeadline, sd.feedWindowEnd, now, cardId, userId]
   );
 
   return getCardDetail(userId, cardId) as Promise<CardDTO>;
+}
+
+/**
+ * 遗弃卡牌
+ */
+export async function abandonCard(userId: number, cardId: number): Promise<void> {
+  const [rows] = await pool.execute<UserCardRow[]>(
+    'SELECT id FROM user_cards WHERE id = ? AND user_id = ? AND (abandoned IS NULL OR abandoned = 0)',
+    [cardId, userId]
+  );
+  if (!rows[0]) throw new Error('卡牌不存在或已被遗弃');
+
+  await pool.execute(
+    'UPDATE user_cards SET abandoned = 1, abandoned_at = ? WHERE id = ?',
+    [Date.now(), cardId]
+  );
 }

@@ -28,3 +28,9 @@ export function hatchEgg(cardId) {
     method: 'POST',
   });
 }
+
+export function abandonCard(cardId) {
+  return request(`/card/${cardId}/abandon`, {
+    method: 'POST',
+  });
+}

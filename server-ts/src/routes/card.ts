@@ -1,5 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { listUserCards, getCardDetail, feedCard, getPendingFeedCards, getCardCount, hatchEgg } from '../services/cardService';
+import {
+  listUserCards,
+  getCardDetail,
+  feedCard,
+  getPendingFeedCards,
+  getCardCount,
+  hatchEgg,
+  abandonCard,
+} from '../services/cardService';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 
@@ -30,7 +38,14 @@ router.post('/:cardId/feed', authMiddleware, async (req: Request, res: Response)
   const { spell_correct } = req.body;
   try {
     const data = await feedCard(req.userId!, Number(req.params.cardId), !!spell_correct);
-    ok(res, data, data.done ? '喂养成功' : '继续努力');
+
+    if (data.done) {
+      ok(res, data, data.message || '喂养成功');
+    } else if (!data.spellCorrect) {
+      ok(res, data, data.message || '拼写错误');
+    } else {
+      ok(res, data, data.message || '继续努力');
+    }
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '喂养失败');
   }
@@ -42,6 +57,15 @@ router.post('/:cardId/hatch', authMiddleware, async (req: Request, res: Response
     ok(res, card, '孵化成功');
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '孵化失败');
+  }
+});
+
+router.post('/:cardId/abandon', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    await abandonCard(req.userId!, Number(req.params.cardId));
+    ok(res, null, '已遗弃该单词');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '遗弃失败');
   }
 });
 

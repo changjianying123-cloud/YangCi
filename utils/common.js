@@ -51,8 +51,33 @@ export function cardStatusColor(status) {
   return map[status] || '#666';
 }
 
+/**
+ * 艾宾浩斯遗忘曲线等级标签
+ */
 export function levelLabel(level) {
   if (level === 0) return '🥚 蛋';
-  const labels = ['', '🥉 青铜', '🥈 白银', '🥇 黄金', '💎 钻石', '👑 王者'];
+  const labels = [
+    '',
+    '🕐 20分钟',
+    '🕐 12小时',
+    '📅 1天',
+    '📅 2天',
+    '📅 4天',
+    '📅 7天',
+    '📅 15天',
+    '📅 30天',
+  ];
   return labels[level] || `Lv.${level}`;
+}
+
+/**
+ * 心情符号
+ */
+export function moodSymbol(mood) {
+  const map = {
+    happy: '😊',
+    sad: '😢',
+    none: '😐',
+  };
+  return map[mood] || '';
 }

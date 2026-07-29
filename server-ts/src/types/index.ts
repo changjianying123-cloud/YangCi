@@ -1,6 +1,7 @@
 import { RowDataPacket } from 'mysql2/promise';
 
 export type CardStatus = 'incubating' | 'ready' | 'hungry' | 'downgraded' | 'normal';
+export type MoodType = 'happy' | 'sad' | 'none';
 
 export interface UserRow extends RowDataPacket {
   id: number;
@@ -49,6 +50,11 @@ export interface UserCardRow extends RowDataPacket {
   audio_url?: string;
   book_code?: string;
   book_name?: string;
+  // 新增字段（迁移）
+  remedial_feed_at?: number | null;
+  had_wrong_attempt?: number;
+  abandoned?: number;
+  abandoned_at?: number | null;
 }
 
 export interface CardDTO {
@@ -71,6 +77,12 @@ export interface CardDTO {
   feedSpellCount: number;
   feedSpellRequired: number;
   nextFeedIn: string;
+  mood: MoodType;
+  hasRemedial: boolean;
+  remedialFeedAt: number | null;
+  isLv1: boolean;
+  lv1FeedProgress: number;
+  hasRemedialWindow: boolean;
 }
 
 export interface JwtPayload {

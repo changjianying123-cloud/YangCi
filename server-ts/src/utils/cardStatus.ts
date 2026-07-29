@@ -1,8 +1,8 @@
 import { config } from '../config';
-import { CardStatus } from '../types';
+import { CardStatus, MoodType } from '../types';
 
 /**
- * 根据卡牌数据库字段计算当前状态
+ * 计算卡牌当前状态
  */
 export function computeCardStatus(
   level: number,
@@ -13,22 +13,13 @@ export function computeCardStatus(
   isEgg: boolean,
   now = Date.now()
 ): CardStatus {
-  // 单词蛋状态
   if (isEgg) return 'normal';
 
-  // 还没有到喂养开始时间
-  if (now < feedDeadline) {
-    return 'normal';
-  }
+  if (now < feedDeadline) return 'normal';
 
-  // 在喂养窗口期内 → 待喂养（incubating）
-  if (now >= feedDeadline && now < feedWindowEnd) {
-    return 'incubating';
-  }
+  if (now >= feedDeadline && now < feedWindowEnd) return 'incubating';
 
-  // 超过了喂养窗口
   if (now >= feedWindowEnd) {
-    // 如果饥饿开始时间已记录并且超过降级阈值 → 降级
     if (hungerStartAt && now >= hungerStartAt + config.card.downgradeThresholdMs) {
       return 'downgraded';
     }
@@ -39,42 +30,95 @@ export function computeCardStatus(
 }
 
 /**
- * 判断卡牌是否可以被喂养
- * 必须在喂养窗口开启时间内
+ * 判断是否可以喂养（含补救窗口）
  */
 export function canFeedNow(
   level: number,
   feedDeadline: number,
   feedWindowEnd: number,
   isEgg: boolean,
+  remedialFeedAt: number | null = null,
   now = Date.now()
 ): boolean {
   if (isEgg) return false;
   if (level < 1) return false;
-  if (level < 1) return false;
-  return now >= feedDeadline && now < feedWindowEnd;
+
+  // 正常窗口
+  if (now >= feedDeadline && now < feedWindowEnd) return true;
+
+  // 补救窗口
+  if (remedialFeedAt && now >= remedialFeedAt) {
+    const remedialEnd = remedialFeedAt + config.card.hungerWindowMs;
+    if (now < remedialEnd) return true;
+  }
+
+  return false;
 }
 
 /**
- * 根据当前等级计算下一次喂养的截止时间和窗口结束时间
+ * 获取补救喂养信息
  */
-export function nextFeedSchedule(level: number, now = Date.now()): {
+export function getRemedialInfo(remedialFeedAt: number | null, now = Date.now()): {
+  hasRemedial: boolean;
+  canFeedRemedial: boolean;
+  humanReadable: string;
+} {
+  if (!remedialFeedAt) return { hasRemedial: false, canFeedRemedial: false, humanReadable: '' };
+
+  const remedialEnd = remedialFeedAt + config.card.hungerWindowMs;
+
+  if (now < remedialFeedAt) {
+    const diff = remedialFeedAt - now;
+    let readable = '';
+    if (diff < 60 * 1000) readable = '补救喂养即将开始';
+    else if (diff < 60 * 60 * 1000) readable = `补救还剩 ${Math.ceil(diff / (60 * 1000))} 分钟`;
+    else readable = `补救还剩 ${Math.ceil(diff / (60 * 60 * 1000))} 小时`;
+    return { hasRemedial: true, canFeedRemedial: false, humanReadable: readable };
+  }
+
+  if (now < remedialEnd) {
+    const diff = remedialEnd - now;
+    let readable = '';
+    if (diff < 60 * 1000) readable = '补救窗口即将关闭！';
+    else readable = `补救剩余 ${Math.ceil(diff / (60 * 1000))} 分钟`;
+    return { hasRemedial: true, canFeedRemedial: true, humanReadable: readable };
+  }
+
+  return { hasRemedial: false, canFeedRemedial: false, humanReadable: '' };
+}
+
+/**
+ * 喂养成功后计算下一等级的时间表
+ * @param lv1FeedCount Lv.1 已喂次数（用于判定是否升级）
+ */
+export function nextFeedSchedule(level: number, lv1FeedCount: number = 0, now = Date.now()): {
   level: number;
   feedDeadline: number;
   feedWindowEnd: number;
 } {
-  const intervals = config.card.feedIntervals;
-  const newLevel = Math.min(level + 1, config.card.maxLevel);
-  const idx = Math.min(newLevel, intervals.length) - 1;
-  const intervalMs = intervals[Math.max(idx, 0)];
+  let newLevel: number;
+
+  if (level === 0) {
+    // 蛋孵化 → Lv.1
+    newLevel = 1;
+  } else if (level === 1 && lv1FeedCount < config.card.maxLv1FeedCount - 1) {
+    // Lv.1 还需再喂一次，保持Lv.1
+    newLevel = 1;
+  } else {
+    // 正常升级
+    newLevel = Math.min(level + 1, config.card.maxLevel);
+  }
+
+  const idx = Math.min(Math.max(newLevel, 1), config.card.feedIntervals.length) - 1;
+  const intervalMs = config.card.feedIntervals[idx];
   const feedDeadline = now + intervalMs;
-  const feedWindowEnd = feedDeadline + config.card.feedWindowMs;
+  const feedWindowEnd = feedDeadline + config.card.hungerWindowMs;
+
   return { level: newLevel, feedDeadline, feedWindowEnd };
 }
 
 /**
- * 降级后计算新的喂养计划
- * 降级后回到前一等级，立即开放喂养窗口
+ * 降级后计算新计划
  */
 export function downgradeSchedule(currentLevel: number, now = Date.now()): {
   level: number;
@@ -85,11 +129,51 @@ export function downgradeSchedule(currentLevel: number, now = Date.now()): {
   const idx = Math.min(newLevel, config.card.feedIntervals.length) - 1;
   const intervalMs = config.card.feedIntervals[Math.max(idx, 0)];
   const feedDeadline = now;
-  const feedWindowEnd = feedDeadline + config.card.feedWindowMs;
+  const feedWindowEnd = feedDeadline + config.card.hungerWindowMs;
   return { level: newLevel, feedDeadline, feedWindowEnd };
+}
+
+/**
+ * 获取窗口信息
+ */
+export function getWindowInfo(feedDeadline: number, feedWindowEnd: number, now = Date.now()): {
+  canFeed: boolean;
+  humanReadable: string;
+} {
+  if (now < feedDeadline) {
+    const diff = feedDeadline - now;
+    let readable = '';
+    if (diff < 60 * 1000) readable = '即将可以喂养';
+    else if (diff < 60 * 60 * 1000) readable = `${Math.ceil(diff / (60 * 1000))}分钟后可以喂养`;
+    else if (diff < 24 * 60 * 60 * 1000) readable = `${Math.ceil(diff / (60 * 60 * 1000))}小时后可以喂养`;
+    else readable = `${Math.ceil(diff / (24 * 60 * 60 * 1000))}天后可以喂养`;
+    return { canFeed: false, humanReadable: readable };
+  }
+  if (now < feedWindowEnd) return { canFeed: true, humanReadable: '🍼 可喂养' };
+  return { canFeed: false, humanReadable: '⏰ 已超时' };
 }
 
 export function buildAudioUrl(word: string, audioUrl?: string | null): string {
   if (audioUrl) return audioUrl;
   return `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(word)}&type=2`;
+}
+
+/**
+ * 获取心情emoji
+ */
+export function getMoodEmoji(mood: MoodType): string {
+  const map: Record<MoodType, string> = {
+    happy: '😊',
+    sad: '😢',
+    none: '😐',
+  };
+  return map[mood] || '';
+}
+
+/**
+ * 判断是否为Lv.1
+ */
+export function getLv1Info(level: number, feedSpellCount: number): { isLv1: boolean; progress: number } {
+  if (level === 1) return { isLv1: true, progress: feedSpellCount };
+  return { isLv1: false, progress: 0 };
 }

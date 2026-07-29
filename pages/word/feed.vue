@@ -13,8 +13,10 @@
 
       <!-- 正常卡牌 -->
       <view v-else>
-        <view class="status-bar" :style="{ background: statusColor }">
-          <text>{{ statusText }} · {{ levelLabel }}</text>
+        <!-- 心情 + 状态 -->
+        <view class="mood-status-bar" :style="{ background: statusColor }">
+          <text class="mood-emoji">{{ moodEmoji }}</text>
+          <text class="status-tag">{{ statusText }} · {{ levelLabel }}</text>
         </view>
 
         <view class="word-panel">
@@ -24,6 +26,7 @@
           <AudioPlayer :src="card.audioUrl" label="听发音" />
           <view class="feed-info">
             <text class="deadline">{{ card.nextFeedIn }}</text>
+            <text v-if="card.hasRemedialWindow" class="remedial-badge">🔄 补救喂养窗口</text>
             <text v-if="card.canFeed" class="window-open">✅ 窗口开放中，可以喂养</text>
             <text v-else class="window-closed">⏳ 未到喂养时间</text>
           </view>
@@ -36,26 +39,33 @@
             <text class="spell-progress">正确 {{ spellCount }} / {{ spellRequired }}</text>
           </view>
 
-          <!-- 进度指示 -->
-          <view class="progress-bar">
-            <view
-              v-for="i in spellRequired"
-              :key="i"
-              class="progress-dot"
-              :class="{ filled: i <= spellCount }"
-            ></view>
+          <!-- Lv.1 进度条（需要2次） -->
+          <view v-if="card.isLv1" class="lv1-progress">
+            <text class="lv1-text">Lv.1 需喂养 2 次才能升级</text>
+            <view class="lv1-dots">
+              <view class="lv1-dot" :class="{ done: card.lv1FeedProgress >= 1 }">①</view>
+              <view class="lv1-arrow">→</view>
+              <view class="lv1-dot" :class="{ done: card.lv1FeedProgress >= 2 }">②</view>
+            </view>
           </view>
 
           <!-- 已拼完 -->
           <view v-if="spellCount >= spellRequired" class="spell-done">
-            <text class="spell-done-text">✅ 已完成全部拼写，请确认喂养</text>
+            <text class="spell-done-text">✅ 拼写正确，请确认喂养</text>
             <button class="feed-btn" :disabled="submitting" @click="confirmFeed">
               {{ submitting ? '喂养中...' : '确认喂养' }}
             </button>
+            <text v-if="card.mood === 'sad'" class="remedial-warning">😢 之前拼写错了，喂养后需2小时补救喂养</text>
           </view>
 
           <!-- 未拼完 -->
           <view v-else class="spell-input-area">
+            <view class="mood-hint" :class="{ sad: card.mood === 'sad' }">
+              <text class="mood-hint-emoji">{{ moodEmoji }}</text>
+              <text class="mood-hint-text">
+                {{ card.mood === 'sad' ? '单词很伤心，快拼对吧 😢' : '单词很开心，等你的拼写 😊' }}
+              </text>
+            </view>
             <view class="word-hint">
               <text>{{ card.meaning }}</text>
               <text class="phonetic-muted" v-if="card.phonetic">{{ card.phonetic }}</text>
@@ -66,7 +76,6 @@
               button-text="提交拼写"
               @submit="submitSpell"
             />
-            <text class="spell-count-text">已正确拼写 {{ spellCount }} 次，还需 {{ spellRequired - spellCount }} 次</text>
           </view>
 
           <text class="level-next">喂养后 → {{ nextLevelLabel }}</text>
@@ -78,6 +87,17 @@
           <text class="tip-text">{{ card.nextFeedIn }}</text>
           <text class="tip-sub">提前喂养无效，请耐心等待窗口开启</text>
         </view>
+
+        <!-- 补救喂养提示 -->
+        <view v-if="card.hasRemedial && !card.canFeed" class="remedial-section">
+          <text class="remedial-icon">🔄</text>
+          <text class="remedial-text">还有补救喂养待完成：{{ card.nextFeedIn }}</text>
+        </view>
+
+        <!-- 遗弃按钮 -->
+        <view class="abandon-section" v-if="!card.isEgg">
+          <button class="abandon-btn" @click="confirmAbandon">🗑️ 遗弃此单词</button>
+        </view>
       </view>
     </view>
 
@@ -86,10 +106,10 @@
 </template>
 
 <script>
-import { getCardDetail, feedCard, hatchEgg } from '@/api/card.js';
+import { getCardDetail, feedCard, hatchEgg, abandonCard } from '@/api/card.js';
 import SpellInput from '@/components/SpellInput/SpellInput.vue';
 import AudioPlayer from '@/components/AudioPlayer/AudioPlayer.vue';
-import { cardStatusText, cardStatusColor, levelLabel } from '@/utils/common.js';
+import { cardStatusText, cardStatusColor, levelLabel, moodSymbol } from '@/utils/common.js';
 import store from '@/store/index.js';
 
 export default {
@@ -100,7 +120,7 @@ export default {
       card: {},
       spellValue: '',
       spellCount: 0,
-      spellRequired: 3,
+      spellRequired: 1,
       submitting: false,
       hatching: false,
     };
@@ -116,7 +136,10 @@ export default {
       return levelLabel(this.card.level);
     },
     nextLevelLabel() {
-      return levelLabel(Math.min((this.card.level || 0) + 1, 5));
+      return levelLabel(Math.min((this.card.level || 0) + 1, 8));
+    },
+    moodEmoji() {
+      return moodSymbol(this.card.mood);
     },
   },
   onLoad(options) {
@@ -129,52 +152,61 @@ export default {
       if (res.data) {
         this.card = res.data;
         this.spellCount = res.data.feedSpellCount || 0;
-        this.spellRequired = res.data.feedSpellRequired || 3;
+        this.spellRequired = res.data.feedSpellRequired || 1;
       }
     },
     async submitSpell() {
       if (this.submitting || !this.spellValue.trim()) return;
       const ok = this.spellValue.trim().toLowerCase() === (this.card.word || '').toLowerCase();
-      if (!ok) {
-        uni.showToast({ title: '拼写错误，再试试', icon: 'none' });
-        this.spellValue = '';
-        return;
-      }
 
       this.submitting = true;
       try {
+        if (!ok) {
+          // 拼写错误
+          await feedCard(this.cardId, { spell_correct: false });
+          uni.showToast({ title: '拼写错误，单词很伤心 😢', icon: 'none' });
+          this.spellValue = '';
+          await this.loadCard();
+          return;
+        }
+
+        // 拼写正确
         const res = await feedCard(this.cardId, { spell_correct: true });
         if (res.data) {
           this.spellCount = res.data.count;
           this.spellRequired = res.data.required;
+
           if (res.data.done) {
-            uni.showToast({ title: '喂养成功！🎉', icon: 'success' });
+            const moodEmoji = res.data.moodEmoji || '😊';
+            uni.showToast({ title: `喂养成功！${moodEmoji}`, icon: 'success' });
             await store.fetchCards(true);
             setTimeout(() => uni.navigateBack(), 1000);
           } else {
-            uni.showToast({ title: `拼写正确 ${res.data.count}/${res.data.required}`, icon: 'none' });
+            // Lv.1 还需再喂一次
+            uni.showToast({ title: res.data.message || `拼写正确 (${res.data.count}/${res.data.required})`, icon: 'none' });
+            this.spellValue = '';
+            await this.loadCard();
           }
         }
-        this.spellValue = '';
       } catch (e) {
-        this.spellValue = '';
+        uni.showToast({ title: e.errMsg || '操作失败', icon: 'none' });
       } finally {
         this.submitting = false;
       }
     },
     async confirmFeed() {
-      // 如果服务端已经处理完了但还没跳转，再调一次确保
       if (this.submitting) return;
       this.submitting = true;
       try {
         const res = await feedCard(this.cardId, { spell_correct: true });
         if (res.data && res.data.done) {
-          uni.showToast({ title: '喂养成功！🎉', icon: 'success' });
+          const moodEmoji = res.data.moodEmoji || '😊';
+          uni.showToast({ title: `喂养成功！${moodEmoji}`, icon: 'success' });
           await store.fetchCards(true);
           setTimeout(() => uni.navigateBack(), 1000);
         }
       } catch (e) {
-        // 已 toast
+        uni.showToast({ title: e.errMsg || '喂养失败', icon: 'none' });
       } finally {
         this.submitting = false;
       }
@@ -188,10 +220,28 @@ export default {
         await this.loadCard();
         await store.fetchCards(true);
       } catch (e) {
-        // request 内已 toast
+        uni.showToast({ title: e.errMsg || '孵化失败', icon: 'none' });
       } finally {
         this.hatching = false;
       }
+    },
+    confirmAbandon() {
+      uni.showModal({
+        title: '遗弃单词',
+        content: `确定要遗弃「${this.card.word}」吗？遗弃后可在收服页面重新收服。`,
+        success: async (res) => {
+          if (res.confirm) {
+            try {
+              await abandonCard(this.cardId);
+              uni.showToast({ title: '已遗弃', icon: 'success' });
+              await store.fetchCards(true);
+              setTimeout(() => uni.navigateBack(), 500);
+            } catch (e) {
+              uni.showToast({ title: '遗弃失败', icon: 'none' });
+            }
+          }
+        },
+      });
     },
   },
 };
@@ -244,15 +294,26 @@ export default {
   font-size: 30rpx;
 }
 
-/* 正常卡牌 */
-.status-bar {
+/* 心情状态栏 */
+.mood-status-bar {
   color: #fff;
   padding: 16rpx 24rpx;
   border-radius: 12rpx;
-  font-size: 26rpx;
   margin-bottom: 24rpx;
+  display: flex;
+  align-items: center;
 }
 
+.mood-emoji {
+  font-size: 36rpx;
+  margin-right: 12rpx;
+}
+
+.status-tag {
+  font-size: 26rpx;
+}
+
+/* 正常卡牌 */
 .word-panel {
   background: #fff;
   border-radius: 20rpx;
@@ -296,6 +357,16 @@ export default {
   margin-bottom: 8rpx;
 }
 
+.remedial-badge {
+  display: inline-block;
+  font-size: 22rpx;
+  color: #ff6f00;
+  background: #fff3e0;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  margin-bottom: 6rpx;
+}
+
 .window-open {
   display: block;
   font-size: 24rpx;
@@ -330,25 +401,66 @@ export default {
   font-weight: bold;
 }
 
-.progress-bar {
+/* Lv.1 进度条 */
+.lv1-progress {
   display: flex;
-  gap: 16rpx;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx;
+  background: #fff8e1;
+  border-radius: 12rpx;
   margin-bottom: 24rpx;
-  padding: 8rpx 0;
 }
 
-.progress-dot {
-  width: 32rpx;
-  height: 32rpx;
-  border-radius: 50%;
-  background: #e0e0e0;
-  transition: all 0.3s;
+.lv1-text {
+  font-size: 22rpx;
+  color: #e65100;
+  margin-bottom: 12rpx;
 }
 
-.progress-dot.filled {
-  background: #4caf50;
-  box-shadow: 0 0 8rpx rgba(76, 175, 80, 0.5);
+.lv1-dots {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.lv1-dot {
+  font-size: 36rpx;
+  opacity: 0.4;
+}
+
+.lv1-dot.done {
+  opacity: 1;
+}
+
+.lv1-arrow {
+  font-size: 28rpx;
+  color: #999;
+}
+
+/* 心情提示 */
+.mood-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12rpx;
+  background: #e8f5e9;
+  border-radius: 12rpx;
+  margin-bottom: 20rpx;
+}
+
+.mood-hint.sad {
+  background: #fce4ec;
+}
+
+.mood-hint-emoji {
+  font-size: 36rpx;
+  margin-right: 8rpx;
+}
+
+.mood-hint-text {
+  font-size: 24rpx;
+  color: #666;
 }
 
 .spell-done {
@@ -369,6 +481,13 @@ export default {
   color: #fff;
   border-radius: 48rpx;
   width: 320rpx;
+}
+
+.remedial-warning {
+  font-size: 22rpx;
+  color: #e65100;
+  margin-top: 16rpx;
+  text-align: center;
 }
 
 .spell-input-area {
@@ -393,14 +512,6 @@ export default {
   font-size: 24rpx !important;
   color: #999 !important;
   margin-top: 4rpx;
-}
-
-.spell-count-text {
-  display: block;
-  text-align: center;
-  font-size: 24rpx;
-  color: #999;
-  margin-top: 16rpx;
 }
 
 .level-next {
@@ -437,6 +548,44 @@ export default {
 .tip-sub {
   font-size: 24rpx;
   color: #999;
+}
+
+/* 补救区域 */
+.remedial-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20rpx;
+  background: #fff3e0;
+  border-radius: 16rpx;
+  margin-top: 24rpx;
+}
+
+.remedial-icon {
+  font-size: 36rpx;
+  margin-right: 12rpx;
+}
+
+.remedial-text {
+  font-size: 24rpx;
+  color: #e65100;
+}
+
+/* 遗弃按钮 */
+.abandon-section {
+  margin-top: 40rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.abandon-btn {
+  background: #fff;
+  color: #f44336;
+  border: 2rpx solid #ffcdd2;
+  border-radius: 40rpx;
+  font-size: 26rpx;
+  width: 320rpx;
+  padding: 16rpx 0;
 }
 
 .empty {
