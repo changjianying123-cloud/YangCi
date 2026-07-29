@@ -96,7 +96,7 @@ export default {
       await store.fetchCards(true);
     },
     goHome() {
-      uni.switchTab ? uni.switchTab({ url: '/pages/index/index' }) : uni.reLaunch({ url: '/pages/index/index' });
+      uni.reLaunch({ url: '/pages/index/index' });
     },
     continueCatch() {
       this.capturing = false;
