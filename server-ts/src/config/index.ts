@@ -38,8 +38,8 @@ export const config = {
     downgradeThresholdMs: 1 * 60 * 60 * 1000,
     // 最大等级
     maxLevel: 8,
-    // 每个喂养窗口只需拼写正确1次
-    feedSpellCount: 1,
+    // 每个喂养窗口需拼写正确3次
+    feedSpellCount: 3,
     // Lv.1 需要喂养2次才能升到Lv.2
     maxLv1FeedCount: 2,
     // 变成单词蛋的阈值（超时30天）

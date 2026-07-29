@@ -123,7 +123,7 @@ export default {
       card: {},
       spellValue: '',
       spellCount: 0,
-      spellRequired: 1,
+      spellRequired: 3,
       submitting: false,
       hatching: false,
       showFullWord: false,
