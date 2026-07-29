@@ -156,7 +156,7 @@ export default {
       if (res.data) {
         this.card = res.data;
         this.spellCount = res.data.feedSpellCount || 0;
-        this.spellRequired = res.data.feedSpellRequired || 1;
+        this.spellRequired = res.data.feedSpellRequired || 3;
       }
     },
     async submitSpell() {
