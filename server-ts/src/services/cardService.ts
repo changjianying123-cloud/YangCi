@@ -1,7 +1,7 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { config } from '../config';
 import { pool } from '../db/pool';
-import { CardDTO, CardStatus, MoodType, UserCardRow } from '../types';
+import { CardDTO, CardStatus, MoodType, UserCardRow, UserRow } from '../types';
 import {
   buildAudioUrl,
   computeCardStatus,
@@ -11,9 +11,20 @@ import {
   getWindowInfo,
   getRemedialInfo,
   getLv1Info,
+  getFeedCoinReward,
+  isHungryNeedCoins,
+  canAffordRecover,
 } from '../utils/cardStatus';
 
-function toCardDTO(row: UserCardRow): CardDTO {
+async function getUserCoins(userId: number): Promise<number> {
+  const [rows] = await pool.execute<UserRow[]>(
+    'SELECT coins FROM users WHERE id = ?',
+    [userId]
+  );
+  return rows[0]?.coins ?? 0;
+}
+
+function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
   const now = Date.now();
   const isEgg = row.is_egg === 1;
   const status = computeCardStatus(
@@ -58,6 +69,11 @@ function toCardDTO(row: UserCardRow): CardDTO {
     isLv1: lv1Info.isLv1,
     lv1FeedProgress: lv1Info.progress,
     hasRemedialWindow: remedialInfo.canFeedRemedial,
+    // 金币系统
+    coins: userCoins,
+    isHungry: status === 'hungry' || status === 'downgraded',
+    canRecoverFromHunger: !canFeed && (status === 'hungry' || status === 'downgraded') && canAffordRecover(userCoins),
+    feedCoinReward: canFeed ? getFeedCoinReward(row.level) : 0,
   };
 }
 
@@ -137,7 +153,8 @@ export async function listUserCards(userId: number): Promise<CardDTO[]> {
     [userId, now, now, now, config.card.downgradeThresholdMs]
   );
   await processHungerDowngrade(rows, now);
-  return rows.map(toCardDTO);
+  const userCoins = await getUserCoins(userId);
+  return rows.map((r) => toCardDTO(r, userCoins));
 }
 
 export async function getCardDetail(userId: number, cardId: number): Promise<CardDTO | null> {
@@ -150,18 +167,19 @@ export async function getCardDetail(userId: number, cardId: number): Promise<Car
     [cardId, userId]
   );
   if (!rows[0]) return null;
-  return toCardDTO(rows[0]);
+  const userCoins = await getUserCoins(userId);
+  return toCardDTO(rows[0], userCoins);
 }
 
 /**
  * 获取升级所需喂养次数
  */
 function getRequiredFeedsForLevel(level: number): number {
-  if (level === 1) return config.card.maxLv1FeedCount;
-  return config.card.feedSpellCount;
+  // 如果之前拼写错了，需要 3 次；否则默认 3 次
+  return 3;
 }
 
-export async function feedCard(userId: number, cardId: number, spellCorrect: boolean) {
+export async function feedCard(userId: number, cardId: number, spellCorrect: boolean, recoverHunger: boolean = false) {
   const now = Date.now();
 
   const [rows] = await pool.execute<UserCardRow[]>(
@@ -174,19 +192,74 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
   if (row.is_egg) throw new Error('单词蛋需要孵化，不能喂养');
   if (row.abandoned) throw new Error('该卡牌已被遗弃');
 
+  // 获取用户当前金币
+  const [userRows] = await pool.execute<UserRow[]>(
+    'SELECT coins FROM users WHERE id = ?',
+    [userId]
+  );
+  const userCoins = userRows[0]?.coins ?? 0;
+
   // 检查是否在可喂养窗口内
   const inNormalWindow = now >= row.feed_deadline && now < row.feed_window_end;
   const remedialStart = row.remedial_feed_at || 0;
   const inRemedialWindow = row.remedial_feed_at && now >= remedialStart && now < remedialStart + config.card.hungerWindowMs;
 
-  if (!inNormalWindow && !inRemedialWindow) {
+  // 判断当前状态：是否饥饿（需要扣钱恢复）
+  const isHungryStatus = row.hunger_start_at !== null;
+  const feedingInHunger = isHungryStatus && (recoverHunger || !inNormalWindow && !inRemedialWindow);
+
+  // 饥饿状态下，必须花费金币恢复才能喂养
+  if (isHungryStatus && !inNormalWindow && !inRemedialWindow) {
+    if (!recoverHunger) {
+      throw new Error('单词饥饿中，需要消耗10金币恢复后才能喂养');
+    }
+    if (userCoins < config.coins.recoverCost) {
+      throw new Error('金币不足，无法恢复饥饿状态');
+    }
+    // 扣金币
+    await pool.execute(
+      'UPDATE users SET coins = coins - ? WHERE id = ?',
+      [config.coins.recoverCost, userId]
+    );
+  }
+
+  // 如果不在正常窗口也不在补救窗口，但已扣费恢复，则强行开启窗口
+  if (!inNormalWindow && !inRemedialWindow && isHungryStatus && recoverHunger) {
+    // 将 feed_deadline 设置为现在（饥饿恢复后立即可以喂养）
+    await pool.execute(
+      `UPDATE user_cards
+       SET feed_deadline = ?, feed_window_end = ?,
+           hunger_start_at = NULL, downgrade_count = 0
+       WHERE id = ?`,
+      [now, now + config.card.hungerWindowMs, cardId]
+    );
+    // 重新读取
+    const [updatedRows] = await pool.execute<UserCardRow[]>(
+      `SELECT * FROM user_cards WHERE id = ? AND user_id = ?`,
+      [cardId, userId]
+    );
+    row.feed_deadline = now;
+    row.feed_window_end = now + config.card.hungerWindowMs;
+    row.hunger_start_at = null;
+    row.downgrade_count = 0;
+  } else if (!inNormalWindow && !inRemedialWindow && !feedingInHunger) {
     throw new Error('现在不是喂养时间');
   }
 
   // ── 拼写错误 ──
   if (!spellCorrect) {
+    // 扣对应等级金币
+    const penaltyCoin = getFeedCoinReward(row.level);
+    if (penaltyCoin > 0) {
+      await pool.execute(
+        'UPDATE users SET coins = GREATEST(coins - ?, 0) WHERE id = ?',
+        [penaltyCoin, userId]
+      );
+    }
+
+    // 重置喂养拼写计数，改为需要拼写 3 次才能喂养成功
     await pool.execute(
-      'UPDATE user_cards SET had_wrong_attempt = 1 WHERE id = ?',
+      'UPDATE user_cards SET feed_spell_count = 0, had_wrong_attempt = 1 WHERE id = ?',
       [cardId]
     );
     return {
@@ -194,21 +267,39 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       spellCorrect: false,
       mood: 'sad' as MoodType,
       moodEmoji: '😢',
-      count: row.feed_spell_count || 0,
-      required: getRequiredFeedsForLevel(row.level),
+      count: 0,
+      required: 3,
       level: row.level,
       hadWrong: true,
-      message: '拼写错误，单词很伤心 😢',
+      coinPenalty: penaltyCoin,
+      message: penaltyCoin > 0
+        ? `拼写错误，扣除 ${penaltyCoin} 💰，需要重新拼写 3 次才能喂养成功 😢`
+        : '拼写错误，需要重新拼写 3 次才能喂养成功 😢',
     };
   }
 
   // ── 拼写正确 ──
   const currentCount = (row.feed_spell_count || 0) + 1;
   const hadWrong = row.had_wrong_attempt === 1;
-  const requiredFeeds = getRequiredFeedsForLevel(row.level);
+  // 如果之前拼写错过，需要 3 次才完成；否则按等级所需次数
+  const requiredFeeds = hadWrong ? 3 : getRequiredFeedsForLevel(row.level);
 
   // 本轮是否有补救窗口，且本次喂养是否在补救窗口中
   const feedingInRemedialWindow = inRemedialWindow && row.remedial_feed_at !== null;
+  // 是否在饥饿恢复后喂养（饥饿状态不获得金币）
+  const feedingAfterHungerRecover = feedingInHunger || (isHungryStatus && (recoverHunger || !inNormalWindow && !inRemedialWindow));
+  // 是否是正常健康状态喂养（可以获得金币）
+  const isHealthyFeed = !isHungryStatus && (inNormalWindow || inRemedialWindow) && !feedingAfterHungerRecover;
+
+  // 🌟 金币奖励：健康状态喂养成功获得等级对应金币
+  let coinReward = 0;
+  if (isHealthyFeed) {
+    coinReward = getFeedCoinReward(row.level);
+    await pool.execute(
+      'UPDATE users SET coins = coins + ? WHERE id = ?',
+      [coinReward, userId]
+    );
+  }
 
   if (currentCount >= requiredFeeds) {
     // ⭐ 达到升级条件
@@ -238,7 +329,7 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
     const mood: MoodType = hadWrong && !feedingInRemedialWindow ? 'happy' : 'happy';
     const moodEmoji = mood === 'happy' ? (hadWrong ? '😆' : '😊') : '😊';
 
-    return {
+    const result: any = {
       done: true,
       spellCorrect: true,
       mood,
@@ -252,10 +343,19 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       nextFeedIn: getWindowInfo(sd.feedDeadline, sd.feedWindowEnd, now).humanReadable,
       hadWrong,
       hasRemedial: !feedingInRemedialWindow && hadWrong,
+      coinReward,
       message: hadWrong
         ? `拼写正确！${moodEmoji} 但之前拼写错过，需在2小时后额外补救喂养一次`
         : `拼写正确！${moodEmoji} 喂养成功！`,
     };
+
+    if (coinReward > 0) {
+      result.message += ` 获得 ${coinReward} 🪙`;
+    } else if (feedingAfterHungerRecover) {
+      result.message += '（饥饿状态喂养无金币奖励）';
+    }
+
+    return result;
   } else {
     // Lv.1 还需要再喂一次
     let remedialFeedAt: number | null = null;
@@ -279,10 +379,11 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       count: currentCount,
       required: requiredFeeds,
       level: row.level,
+      coinReward,
       isLv1Second: true,
       hadWrong,
       hasRemedial: hadWrong,
-      message: `拼写正确！😊 还需 ${remaining} 次喂养才升级`,
+      message: `拼写正确！😊 还需 ${remaining} 次喂养才升级` + (coinReward > 0 ? ` 获得 ${coinReward} 🪙` : ''),
     };
   }
 }

@@ -1,6 +1,18 @@
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { pool } from './pool';
 
+/** 幂等加列：不存在才 ALTER（兼容 MySQL 5.7/8.x） */
+async function addColumnIfMissing(table: string, column: string, definition: string) {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column]
+  );
+  if (((rows[0] as { n: number }).n || 0) === 0) {
+    await pool.execute(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+  }
+}
+
 const BOOKS = [
   { book_code: 'primary', book_name: '小学', icon: '📚', color: '#4CAF50', total_words: 0 },
   { book_code: 'middle', book_name: '初中', icon: '📖', color: '#2196F3', total_words: 0 },
@@ -52,9 +64,12 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       openid VARCHAR(64) NOT NULL UNIQUE,
+      username VARCHAR(64) DEFAULT NULL,
+      password_hash VARCHAR(255) DEFAULT NULL,
       nickname VARCHAR(64) DEFAULT NULL,
       avatar_url VARCHAR(512) DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_username (username)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
@@ -78,6 +93,7 @@ export async function initDatabase() {
       meaning TEXT NOT NULL,
       audio_url VARCHAR(512) DEFAULT NULL,
       example_sentence TEXT DEFAULT NULL,
+      pos VARCHAR(64) DEFAULT NULL,
       UNIQUE KEY uk_book_word (book_id, word),
       FOREIGN KEY (book_id) REFERENCES books(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -113,6 +129,68 @@ export async function initDatabase() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (card_id) REFERENCES user_cards(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 单词对战记录（整局 JSON 存 state，原子更新，将来 PvP 复用同表）
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS battles (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      player_user_id INT NOT NULL,
+      enemy_user_id INT DEFAULT NULL,
+      mode VARCHAR(8) NOT NULL DEFAULT 'ai',
+      status VARCHAR(10) NOT NULL DEFAULT 'active',
+      state LONGTEXT NOT NULL,
+      turn_now INT DEFAULT 1,
+      turn_deadline BIGINT DEFAULT 0,
+      winner TINYINT(1) DEFAULT NULL,
+      rewards TEXT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      finished_at TIMESTAMP DEFAULT NULL,
+      FOREIGN KEY (player_user_id) REFERENCES users(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 金币场（真人 PvP）匹配队列：加入队列等待「同押注」对手；配对后写 battle_id
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS battle_queue (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      nickname VARCHAR(64) DEFAULT NULL,
+      bet INT NOT NULL,
+      battle_id INT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_bet (bet),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // battles 加 kind（新手场 rookie / 金币场 gold）+ 押注（幂等，用 information_schema 判断）
+  await addColumnIfMissing('battles', 'kind', "VARCHAR(8) NOT NULL DEFAULT 'rookie' AFTER mode");
+  await addColumnIfMissing('battles', 'bet', 'INT NOT NULL DEFAULT 0 AFTER kind');
+
+  // 金币场「房间」：房主开房 → 别人加入 → 双方准备 → 双方布阵(2min) → 开战
+  // status: waiting(等人) | ready_check(两人已坐等准备) | deploy(布阵中) | playing(对战中) | finished(已结束) | cancelled
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS battle_rooms (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      owner_user_id INT NOT NULL,
+      guest_user_id INT DEFAULT NULL,
+      bet INT NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'waiting',
+      owner_ready TINYINT(1) DEFAULT 0,
+      guest_ready TINYINT(1) DEFAULT 0,
+      owner_deployed TINYINT(1) DEFAULT 0,
+      guest_deployed TINYINT(1) DEFAULT 0,
+      deploy_deadline BIGINT DEFAULT 0,
+      battle_id INT DEFAULT NULL,
+      winner_user_id INT DEFAULT NULL,
+      escrowed TINYINT(1) DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_status (status),
+      INDEX idx_owner (owner_user_id),
+      INDEX idx_guest (guest_user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
@@ -155,7 +233,16 @@ export async function initDatabase() {
     `ALTER TABLE user_cards ADD COLUMN had_wrong_attempt TINYINT(1) DEFAULT 0 AFTER remedial_feed_at`,
     `ALTER TABLE user_cards ADD COLUMN abandoned TINYINT(1) DEFAULT 0 AFTER had_wrong_attempt`,
     `ALTER TABLE user_cards ADD COLUMN abandoned_at BIGINT DEFAULT NULL AFTER abandoned`,
+    `ALTER TABLE users ADD COLUMN coins INT DEFAULT 0 AFTER avatar_url`,
+    `ALTER TABLE users ADD COLUMN username VARCHAR(64) DEFAULT NULL AFTER openid`,
+    `ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL AFTER username`,
+    `ALTER TABLE users ADD UNIQUE KEY uk_username (username)`,
+    `ALTER TABLE words ADD COLUMN pos VARCHAR(64) DEFAULT NULL AFTER example_sentence`,
   ];
+  // users 迁移执行完后，顺带补一次唯一索引（老表可能已有重复 null，需容错）
+  try {
+    await pool.execute(`ALTER TABLE users ADD UNIQUE KEY uk_username (username)`);
+  } catch (_) { /* 索引已存在则忽略 */ }
   for (const sql of migrations) {
     try { await pool.execute(sql); } catch (_) { /* 列已存在则忽略 */ }
   }

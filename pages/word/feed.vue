@@ -1,5 +1,12 @@
 <template>
   <view class="page">
+    <!-- 顶部金币栏 -->
+    <view class="coin-bar">
+      <text class="coin-display">💰 {{ card.coins || 0 }}</text>
+      <text class="coin-hint" v-if="card.canFeed && card.feedCoinReward > 0 && !card.isHungry && !card.hadWrongBefore">喂养成功可得 +{{ card.feedCoinReward }} 💰</text>
+      <text class="coin-hint" v-else-if="card.canFeed && card.isHungry">饥饿喂养无金币奖励</text>
+    </view>
+
     <view v-if="card.id" class="content">
       <!-- 单词蛋：孵化状态 -->
       <view v-if="card.isEgg" class="egg-section">
@@ -20,72 +27,72 @@
         </view>
 
         <view class="word-panel">
-          <text class="word-text">{{ card.word }}</text>
-          <text class="meaning">{{ card.meaning }}</text>
-          <text class="phonetic" v-if="card.phonetic">{{ card.phonetic }}</text>
-          <AudioPlayer :src="card.audioUrl" label="听发音" />
-          <view class="feed-info">
-            <text class="deadline">{{ card.nextFeedIn }}</text>
-            <text v-if="card.hasRemedialWindow" class="remedial-badge">🔄 补救喂养窗口</text>
-            <text v-if="card.canFeed" class="window-open">✅ 窗口开放中，可以喂养</text>
-            <text v-else class="window-closed">⏳ 未到喂养时间</text>
-          </view>
-        </view>
-
-        <!-- 拼写喂养区 -->
-        <view v-if="card.canFeed" class="spell-section">
-          <view class="section-title">
-            <text>拼写喂养</text>
-            <text class="spell-progress">正确 {{ spellCount }} / {{ spellRequired }}</text>
-          </view>
-
-          <!-- Lv.1 进度条（需要2次） -->
-          <view v-if="card.isLv1" class="lv1-progress">
-            <text class="lv1-text">Lv.1 需喂养 2 次才能升级</text>
-            <view class="lv1-dots">
-              <view class="lv1-dot" :class="{ done: card.lv1FeedProgress >= 1 }">①</view>
-              <view class="lv1-arrow">→</view>
-              <view class="lv1-dot" :class="{ done: card.lv1FeedProgress >= 2 }">②</view>
+          <!-- 拼写检测模式：只显示释义 -->
+          <view v-if="card.canFeed" class="challenge-mode">
+            <text class="challenge-label">✏️ 拼写检测</text>
+            <text class="challenge-meaning">{{ card.meaning }}</text>
+            <text class="challenge-hint">根据中文释义拼写出英文</text>
+            <view v-if="card.feedCoinReward > 0 && !card.isHungry && !card.challengeHadWrong" class="coin-reward-hint">
+              <text>💎 拼写正确可得 {{ card.feedCoinReward }} 💰</text>
             </view>
-          </view>
+            <view v-else-if="card.challengeHadWrong" class="coin-reward-hint penalty">
+              <text>⚠️ 之前拼写错误扣了金币，需要再拼 {{ spellRequired - spellCount }} 次</text>
+            </view>
+            <view v-else-if="card.isHungry" class="coin-reward-hint no-reward">
+              <text>⚠️ 饥饿状态喂养无金币奖励</text>
+            </view>
 
-          <!-- 已拼完 -->
-          <view v-if="spellCount >= spellRequired" class="spell-done">
-            <text class="spell-done-text">✅ 拼写正确，请确认喂养</text>
-            <button class="feed-btn" :disabled="submitting" @click="confirmFeed">
-              {{ submitting ? '喂养中...' : '确认喂养' }}
-            </button>
-            <text v-if="card.mood === 'sad'" class="remedial-warning">😢 之前拼写错了，喂养后需2小时补救喂养</text>
-          </view>
+            <!-- 拼写进度 -->
+            <view v-if="card.challengeHadWrong" class="challenge-progress">
+              <text>补考拼写：{{ spellCount }} / {{ spellRequired }}</text>
+            </view>
+            <view v-else class="challenge-progress">
+              <text>拼写正确 {{ spellCount }} 次后可确认喂养</text>
+            </view>
 
-          <!-- 未拼完 -->
-          <view v-else class="spell-input-area">
-            <view class="mood-hint" :class="{ sad: card.mood === 'sad' }">
-              <text class="mood-hint-emoji">{{ moodEmoji }}</text>
-              <text class="mood-hint-text">
-                {{ card.mood === 'sad' ? '单词很伤心，快拼对吧 😢' : '单词很开心，等你的拼写 😊' }}
-              </text>
-            </view>
-            <view class="word-hint">
-              <text>{{ card.meaning }}</text>
-              <text class="phonetic-muted" v-if="card.phonetic">{{ card.phonetic }}</text>
-            </view>
-            <view class="word-reveal" @click="showFullWord = !showFullWord">
-              <text>{{ showFullWord ? card.word : '👆 点击显示完整单词' }}</text>
-            </view>
             <SpellInput
               v-model="spellValue"
               :disabled="submitting"
               button-text="提交拼写"
               @submit="submitSpell"
             />
+
+            <view class="challenge-reveal" @click="showFullWord = !showFullWord">
+              <text>{{ showFullWord ? card.word : '👆 忘记单词了？点击查看' }}</text>
+            </view>
           </view>
 
-          <text class="level-next">喂养后 → {{ nextLevelLabel }}</text>
+          <!-- 不可喂养时显示 -->
+          <view v-else>
+            <text class="word-text">{{ card.word }}</text>
+            <text class="meaning">{{ card.meaning }}</text>
+            <text class="phonetic" v-if="card.phonetic">{{ card.phonetic }}</text>
+            <AudioPlayer :src="card.audioUrl" label="听发音" />
+            <view class="feed-info">
+              <text class="deadline">{{ card.nextFeedIn }}</text>
+              <text v-if="card.hasRemedialWindow" class="remedial-badge">🔄 补救喂养窗口</text>
+              <text v-if="!card.canFeed && !card.isHungry" class="window-closed">⏳ 未到喂养时间</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 饥饿恢复区 -->
+        <view v-if="card.isHungry && !card.canFeed" class="hunger-recover-section">
+          <view class="hunger-icon">😰</view>
+          <text class="hunger-title">单词饥饿中！</text>
+          <text class="hunger-desc">消耗 10 💰 可立即恢复并开始喂养</text>
+          <button
+            class="recover-btn"
+            :disabled="recovering || (card.coins || 0) < 10"
+            @click="doRecoverHunger"
+          >
+            {{ recovering ? '恢复中...' : `提供 10 💰 恢复饥饿` }}
+          </button>
+          <text v-if="(card.coins || 0) < 10" class="coin-insufficient">💰 金币不足，去收服新单词获取金币吧</text>
         </view>
 
         <!-- 不可喂养时显示提示 -->
-        <view v-else class="no-feed-tip">
+        <view v-if="!card.canFeed && !card.isHungry" class="no-feed-tip">
           <text class="tip-icon">⏰</text>
           <text class="tip-text">{{ card.nextFeedIn }}</text>
           <text class="tip-sub">提前喂养无效，请耐心等待窗口开启</text>
@@ -109,7 +116,7 @@
 </template>
 
 <script>
-import { getCardDetail, feedCard, hatchEgg, abandonCard } from '@/api/card.js';
+import { getCardDetail, feedCard, hatchEgg, abandonCard, recoverHunger } from '@/api/card.js';
 import SpellInput from '@/components/SpellInput/SpellInput.vue';
 import AudioPlayer from '@/components/AudioPlayer/AudioPlayer.vue';
 import { cardStatusText, cardStatusColor, levelLabel, moodSymbol } from '@/utils/common.js';
@@ -126,6 +133,7 @@ export default {
       spellRequired: 3,
       submitting: false,
       hatching: false,
+      recovering: false,
       showFullWord: false,
     };
   },
@@ -157,57 +165,80 @@ export default {
         this.card = res.data;
         this.spellCount = res.data.feedSpellCount || 0;
         this.spellRequired = res.data.feedSpellRequired || 3;
+
+        // 判断是否之前拼写过（hadWrongAfterReset 等信息）
+        // 直接从后端的 had_wrong_attempt 判断
+        this.card.challengeHadWrong = res.data.mood === 'sad';
       }
+    },
+    // 消耗金币恢复饥饿
+    async doRecoverHunger() {
+      if (this.recovering) return;
+      if ((this.card.coins || 0) < 10) {
+        uni.showToast({ title: '💰 金币不足，需要10金币', icon: 'none' });
+        return;
+      }
+      uni.showModal({
+        title: '恢复饥饿',
+        content: `消耗 10 💰 恢复「${this.card.word}」的饥饿状态？恢复后即可开始喂养，但饥饿状态下喂养无金币奖励。`,
+        success: async (modalRes) => {
+          if (!modalRes.confirm) return;
+          this.recovering = true;
+          try {
+            const res = await recoverHunger(this.cardId);
+            if (res.data) {
+              uni.showToast({ title: '恢复成功！可以开始喂养', icon: 'success' });
+              await this.loadCard();
+              await store.fetchCards(true);
+            }
+          } catch (e) {
+            uni.showToast({ title: e.errMsg || '恢复失败', icon: 'none' });
+          } finally {
+            this.recovering = false;
+          }
+        },
+      });
     },
     async submitSpell() {
       if (this.submitting || !this.spellValue.trim()) return;
-      const ok = this.spellValue.trim().toLowerCase() === (this.card.word || '').toLowerCase();
-
       this.submitting = true;
+      this.showFullWord = false;
+
+      const ok = this.spellValue.trim().toLowerCase() === (this.card.word || '').toLowerCase();
+      this.spellValue = '';
+
       try {
+        const res = await feedCard(this.cardId, { spell_correct: ok });
+
         if (!ok) {
-          await feedCard(this.cardId, { spell_correct: false });
-          uni.showToast({ title: '拼写错误，单词很伤心 😢', icon: 'none' });
-          this.spellValue = '';
+          // 拼写错误
+          this.spellCount = 0;
+          this.spellRequired = 3;
+          const penaltyMsg = res.data && res.data.coinPenalty > 0 ? `扣除 ${res.data.coinPenalty} 💰` : '';
+          uni.showToast({ title: `拼写错误${penaltyMsg ? '，' + penaltyMsg : ''}，再试一次`, icon: 'none' });
           await this.loadCard();
           return;
         }
 
-        const res = await feedCard(this.cardId, { spell_correct: true });
+        // 拼写正确
         if (res.data) {
-          this.spellCount = res.data.count;
-          this.spellRequired = res.data.required;
+          this.spellCount = res.data.count || 0;
+          this.spellRequired = res.data.required || 3;
 
           if (res.data.done) {
-            const moodEmoji = res.data.moodEmoji || '😊';
-            uni.showToast({ title: `喂养成功！${moodEmoji}`, icon: 'success' });
+            const coinMsg = res.data.coinReward > 0 ? ` +${res.data.coinReward}💰` : '';
+            const hasRemedial = res.data.hasRemedial ? ' 需2小时后补救' : '';
+            uni.showToast({ title: `喂养成功！${coinMsg}${hasRemedial}`, icon: 'success' });
             await store.fetchCards(true);
-            setTimeout(() => uni.navigateBack(), 1000);
+            setTimeout(() => uni.navigateBack(), 1200);
           } else {
-            uni.showToast({ title: res.data.message || `拼写正确 (${res.data.count}/${res.data.required})`, icon: 'none' });
-            this.spellValue = '';
+            const coinMsg = res.data.coinReward > 0 ? ` +${res.data.coinReward}💰` : '';
+            uni.showToast({ title: `拼写正确！(${res.data.count}/${res.data.required})${coinMsg}`, icon: 'none' });
             await this.loadCard();
           }
         }
       } catch (e) {
         uni.showToast({ title: e.errMsg || '操作失败', icon: 'none' });
-      } finally {
-        this.submitting = false;
-      }
-    },
-    async confirmFeed() {
-      if (this.submitting) return;
-      this.submitting = true;
-      try {
-        const res = await feedCard(this.cardId, { spell_correct: true });
-        if (res.data && res.data.done) {
-          const moodEmoji = res.data.moodEmoji || '😊';
-          uni.showToast({ title: `喂养成功！${moodEmoji}`, icon: 'success' });
-          await store.fetchCards(true);
-          setTimeout(() => uni.navigateBack(), 1000);
-        }
-      } catch (e) {
-        uni.showToast({ title: e.errMsg || '喂养失败', icon: 'none' });
       } finally {
         this.submitting = false;
       }
@@ -251,127 +282,183 @@ export default {
 <style scoped>
 .page {
   min-height: 100vh;
-  background: #f7f8fa;
+  background: #f0f2f5;
   padding: 24rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
 }
 
-/* 单词蛋 */
-.egg-section {
+.empty {
+  text-align: center;
+  padding: 120rpx;
+  color: #999;
+}
+
+/* 金币栏 */
+.coin-bar {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: 80rpx 40rpx;
-}
-
-.egg-icon {
-  font-size: 160rpx;
-  margin-bottom: 32rpx;
-  animation: eggBounce 2s ease-in-out infinite;
-}
-
-@keyframes eggBounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-20rpx); }
-}
-
-.egg-title {
-  font-size: 36rpx;
-  font-weight: bold;
+  justify-content: space-between;
+  padding: 16rpx 24rpx;
+  background: linear-gradient(135deg, #ffd54f, #ffb300);
+  border-radius: 16rpx;
   margin-bottom: 16rpx;
 }
 
-.egg-desc {
-  font-size: 26rpx;
-  color: #999;
-  text-align: center;
-  margin-bottom: 48rpx;
+.coin-display {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #5d4037;
 }
 
-.hatch-btn {
-  background: linear-gradient(135deg, #ff9800, #ffc107);
-  color: #fff;
-  border-radius: 48rpx;
-  width: 360rpx;
-  font-size: 30rpx;
+.coin-hint {
+  font-size: 24rpx;
+  color: #6d4c41;
+}
+
+.coin-hint.hungry {
+  color: #d32f2f;
 }
 
 /* 心情状态栏 */
 .mood-status-bar {
-  color: #fff;
-  padding: 16rpx 24rpx;
-  border-radius: 12rpx;
-  margin-bottom: 24rpx;
   display: flex;
   align-items: center;
+  gap: 8rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 16rpx;
+  margin-bottom: 16rpx;
+  color: #fff;
 }
 
 .mood-emoji {
   font-size: 36rpx;
-  margin-right: 12rpx;
 }
 
 .status-tag {
-  font-size: 26rpx;
+  font-size: 24rpx;
 }
 
-/* 正常卡牌 */
+/* 单词面板 */
 .word-panel {
   background: #fff;
   border-radius: 20rpx;
-  padding: 40rpx;
-  text-align: center;
-  margin-bottom: 32rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
 }
 
+/* 拼写检测模式（可喂养时） */
+.challenge-mode {
+  text-align: center;
+}
+
+.challenge-label {
+  display: block;
+  font-size: 22rpx;
+  color: #fff;
+  background: #4a90e2;
+  padding: 4rpx 20rpx;
+  border-radius: 20rpx;
+  width: 140rpx;
+  margin: 0 auto 24rpx;
+}
+
+.challenge-meaning {
+  display: block;
+  font-size: 40rpx;
+  font-weight: bold;
+  margin-bottom: 8rpx;
+}
+
+.challenge-hint {
+  display: block;
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 16rpx;
+}
+
+.challenge-progress {
+  font-size: 26rpx;
+  color: #4a90e2;
+  margin-bottom: 16rpx;
+}
+
+.challenge-reveal {
+  font-size: 22rpx;
+  color: #999;
+  padding: 12rpx;
+  margin-top: 16rpx;
+  background: #f5f5f5;
+  border-radius: 12rpx;
+}
+
+/* 金币提示 */
+.coin-reward-hint {
+  padding: 10rpx;
+  background: #fff8e1;
+  border-radius: 12rpx;
+  margin-bottom: 16rpx;
+}
+
+.coin-reward-hint text {
+  font-size: 24rpx;
+  color: #e65100;
+}
+
+.coin-reward-hint.penalty {
+  background: #fce4ec;
+}
+
+.coin-reward-hint.penalty text {
+  color: #c62828;
+}
+
+.coin-reward-hint.no-reward {
+  background: #fce4ec;
+}
+
+.coin-reward-hint.no-reward text {
+  color: #c62828;
+}
+
+/* 不可喂养时显示单词信息 */
 .word-text {
   display: block;
   font-size: 44rpx;
   font-weight: bold;
   margin-bottom: 8rpx;
-  color: #333;
 }
 
 .meaning {
   display: block;
-  font-size: 32rpx;
+  font-size: 28rpx;
   color: #666;
-  margin-bottom: 8rpx;
+  margin-bottom: 4rpx;
 }
 
 .phonetic {
   display: block;
-  font-size: 26rpx;
+  font-size: 24rpx;
   color: #999;
-  margin-bottom: 24rpx;
+  margin-bottom: 16rpx;
 }
 
 .feed-info {
-  margin-top: 24rpx;
-  padding-top: 20rpx;
-  border-top: 1rpx solid #f0f0f0;
+  margin-top: 16rpx;
 }
 
 .deadline {
   display: block;
-  font-size: 26rpx;
-  color: #ff9800;
-  margin-bottom: 8rpx;
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 4rpx;
 }
 
 .remedial-badge {
-  display: inline-block;
-  font-size: 22rpx;
-  color: #ff6f00;
-  background: #fff3e0;
-  padding: 4rpx 12rpx;
-  border-radius: 8rpx;
-  margin-bottom: 6rpx;
-}
-
-.window-open {
   display: block;
-  font-size: 24rpx;
-  color: #4caf50;
+  font-size: 22rpx;
+  color: #2196f3;
+  font-weight: bold;
+  margin-bottom: 4rpx;
 }
 
 .window-closed {
@@ -380,230 +467,111 @@ export default {
   color: #999;
 }
 
-/* 拼写区域 */
-.spell-section {
+/* 饥饿恢复区 */
+.hunger-recover-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40rpx;
   background: #fff;
   border-radius: 20rpx;
-  padding: 32rpx;
+  margin-bottom: 24rpx;
+  border: 2rpx solid #ffcdd2;
 }
 
-.section-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 28rpx;
-  font-weight: bold;
+.hunger-icon {
+  font-size: 80rpx;
   margin-bottom: 16rpx;
 }
 
-.spell-progress {
-  font-size: 26rpx;
-  color: #4a90e2;
+.hunger-title {
+  font-size: 32rpx;
   font-weight: bold;
+  color: #d32f2f;
+  margin-bottom: 8rpx;
 }
 
-/* Lv.1 进度条 */
-.lv1-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16rpx;
-  background: #fff8e1;
-  border-radius: 12rpx;
-  margin-bottom: 24rpx;
-}
-
-.lv1-text {
-  font-size: 22rpx;
-  color: #e65100;
-  margin-bottom: 12rpx;
-}
-
-.lv1-dots {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.lv1-dot {
-  font-size: 36rpx;
-  opacity: 0.4;
-}
-
-.lv1-dot.done {
-  opacity: 1;
-}
-
-.lv1-arrow {
-  font-size: 28rpx;
+.hunger-desc {
+  font-size: 26rpx;
   color: #999;
-}
-
-/* 心情提示 */
-.mood-hint {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12rpx;
-  background: #e8f5e9;
-  border-radius: 12rpx;
-  margin-bottom: 20rpx;
-}
-
-.mood-hint.sad {
-  background: #fce4ec;
-}
-
-.mood-hint-emoji {
-  font-size: 36rpx;
-  margin-right: 8rpx;
-}
-
-.mood-hint-text {
-  font-size: 24rpx;
-  color: #666;
-}
-
-.spell-done {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 24rpx 0;
-}
-
-.spell-done-text {
-  font-size: 28rpx;
-  color: #4caf50;
   margin-bottom: 32rpx;
 }
 
-.feed-btn {
-  background: #ff9500;
+.recover-btn {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
   color: #fff;
   border-radius: 48rpx;
-  width: 320rpx;
+  width: 400rpx;
+  font-size: 30rpx;
+  font-weight: bold;
 }
 
-.remedial-warning {
-  font-size: 22rpx;
-  color: #e65100;
-  margin-top: 16rpx;
-  text-align: center;
-}
-
-.spell-input-area {
-  padding: 8rpx 0;
-}
-
-.word-hint {
-  text-align: center;
-  padding: 16rpx;
-  background: #f0f8ff;
-  border-radius: 12rpx;
-  margin-bottom: 12rpx;
-}
-
-.word-hint text {
-  display: block;
-  font-size: 32rpx;
-  color: #333;
-}
-
-.phonetic-muted {
-  font-size: 24rpx !important;
-  color: #999 !important;
-  margin-top: 4rpx;
-}
-
-/* 点击显示完整单词 */
-.word-reveal {
-  text-align: center;
-  padding: 12rpx;
-  margin-bottom: 16rpx;
-  font-size: 26rpx;
-  color: #999;
-  background: #fafafa;
-  border-radius: 12rpx;
-  border: 1rpx dashed #e0e0e0;
-}
-
-.level-next {
-  display: block;
-  text-align: center;
-  margin-top: 24rpx;
+.coin-insufficient {
   font-size: 24rpx;
-  color: #999;
-  padding-top: 20rpx;
-  border-top: 1rpx solid #f0f0f0;
+  color: #e53935;
+  margin-top: 16rpx;
 }
 
-/* 不可喂养提示 */
+/* 不可喂养 */
 .no-feed-tip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 60rpx 40rpx;
+  text-align: center;
+  padding: 48rpx;
   background: #fff;
   border-radius: 20rpx;
+  margin-bottom: 24rpx;
 }
 
 .tip-icon {
-  font-size: 60rpx;
+  display: block;
+  font-size: 64rpx;
   margin-bottom: 16rpx;
 }
 
 .tip-text {
+  display: block;
   font-size: 28rpx;
-  color: #ff9800;
+  color: #333;
   margin-bottom: 8rpx;
 }
 
 .tip-sub {
+  display: block;
   font-size: 24rpx;
   color: #999;
 }
 
-/* 补救区域 */
+/* 补救 */
 .remedial-section {
   display: flex;
   align-items: center;
-  justify-content: center;
   padding: 20rpx;
-  background: #fff3e0;
-  border-radius: 16rpx;
-  margin-top: 24rpx;
+  background: #e3f2fd;
+  border-radius: 12rpx;
+  margin-bottom: 24rpx;
 }
 
 .remedial-icon {
-  font-size: 36rpx;
-  margin-right: 12rpx;
+  font-size: 28rpx;
+  margin-right: 8rpx;
 }
 
 .remedial-text {
   font-size: 24rpx;
-  color: #e65100;
+  color: #1565c0;
 }
 
-/* 遗弃按钮 */
+/* 遗弃 */
 .abandon-section {
-  margin-top: 40rpx;
-  display: flex;
-  justify-content: center;
+  text-align: center;
+  margin-top: 32rpx;
 }
 
 .abandon-btn {
-  background: #fff;
-  color: #f44336;
-  border: 2rpx solid #ffcdd2;
-  border-radius: 40rpx;
+  background: transparent;
+  border: 2rpx solid #e53935;
+  color: #e53935;
+  border-radius: 48rpx;
+  width: 300rpx;
   font-size: 26rpx;
-  width: 320rpx;
-  padding: 16rpx 0;
-}
-
-.empty {
-  text-align: center;
-  padding: 120rpx;
-  color: #999;
 }
 </style>

@@ -24,7 +24,6 @@
           </view>
         </view>
         <text class="word">{{ card.word }}</text>
-        <text class="meaning">{{ card.meaning }}</text>
         <view class="card-footer">
           <text class="deadline">{{ card.nextFeedIn }}</text>
           <text v-if="card.status === 'incubating'" class="feed-tip">🍼 可喂养</text>
@@ -183,17 +182,6 @@ export default {
   position: relative;
   z-index: 1;
   text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.2);
-}
-
-.meaning {
-  display: block;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.9);
-  position: relative;
-  z-index: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .card-footer {

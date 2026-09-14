@@ -34,3 +34,10 @@ export function abandonCard(cardId) {
     method: 'POST',
   });
 }
+
+export function recoverHunger(cardId) {
+  return request('/card/recover-hunger', {
+    method: 'POST',
+    data: { card_id: cardId },
+  });
+}

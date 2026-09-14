@@ -3,6 +3,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const config = {
+  // 金币系统
+  coins: {
+    catchReward: 5,
+    recoverCost: 10,
+    feedCoinPerLevel: true,
+  },
   port: Number(process.env.PORT) || 3000,
   db: {
     host: process.env.DB_HOST || 'localhost',

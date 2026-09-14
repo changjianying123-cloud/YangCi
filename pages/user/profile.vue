@@ -1,21 +1,24 @@
 <template>
   <view class="page">
     <view class="profile-hero">
-      <button class="avatar-btn" open-type="chooseAvatar" @chooseavatar="onChooseAvatar">
-        <image v-if="avatarUrl" class="avatar-img" :src="avatarUrl" mode="aspectFill" />
-        <view v-else class="avatar">{{ avatarText }}</view>
+      <button class="avatar-btn" v-if="!avatarUrl" open-type="chooseAvatar" @chooseavatar="onChooseAvatar">
+        <view class="avatar">{{ avatarText }}</view>
       </button>
+      <image v-else class="avatar-img" :src="avatarUrl" mode="aspectFill" />
       <view class="info">
-        <input
-          class="nickname-input"
-          type="nickname"
-          :value="nickname"
-          placeholder="点击设置昵称"
-          @blur="onNicknameBlur"
-          @input="onNicknameInput"
-        />
-        <text class="uid">ID: {{ user.id || '-' }}</text>
+        <input class="nickname-input" :value="nickname" placeholder="输入昵称" @input="onNicknameInput" @blur="onNicknameBlur" />
+        <text class="uid">UID: {{ user.openid || '--' }}</text>
       </view>
+    </view>
+
+    <view class="coin-section">
+      <view class="coin-icon">💰</view>
+      <text class="coin-num">{{ stats.coins || 0 }}</text>
+      <text class="coin-label">金币</text>
+    </view>
+
+    <view class="section logout-section">
+      <text class="logout-btn" @click="confirmLogout">退出登录</text>
     </view>
 
     <view class="stats-grid">
@@ -51,7 +54,7 @@
     </view>
 
     <view class="section">
-      <text class="section-title">近7日喂养</text>
+      <text class="section-title">每日喂养</text>
       <view v-if="(stats.recentFeeds || []).length === 0" class="empty-tip">暂无记录</view>
       <view v-else class="chart">
         <view v-for="item in stats.recentFeeds" :key="item.day" class="chart-bar-wrap">
@@ -83,7 +86,7 @@ export default {
   },
   computed: {
     avatarText() {
-      return (this.nickname || '词').slice(0, 1);
+      return (this.nickname || '?').slice(0, 1);
     },
     maxFeedCount() {
       const feeds = this.stats.recentFeeds || [];
@@ -104,6 +107,19 @@ export default {
       }
       const statRes = await getStatOverview();
       if (statRes.data) this.stats = statRes.data;
+    },
+    logout() {
+      store.logout();
+      uni.reLaunch({ url: '/pages/login/login' });
+    },
+    confirmLogout() {
+      uni.showModal({
+        title: '退出登录',
+        content: '确定要退出当前账号吗？',
+        success: (res) => {
+          if (res.confirm) this.logout();
+        },
+      });
     },
     bookPercent(item) {
       const books = store.state.books;
@@ -212,6 +228,34 @@ export default {
   margin-top: 8rpx;
 }
 
+.coin-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32rpx;
+  margin: 0 24rpx 24rpx;
+  background: linear-gradient(135deg, #fff8e1, #ffecb3);
+  border-radius: 24rpx;
+}
+
+.coin-icon {
+  font-size: 64rpx;
+  margin-bottom: 8rpx;
+}
+
+.coin-num {
+  font-size: 52rpx;
+  font-weight: bold;
+  color: #e65100;
+}
+
+.coin-label {
+  font-size: 26rpx;
+  color: #a1887f;
+  margin-top: 4rpx;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -252,6 +296,17 @@ export default {
   padding: 24rpx;
   margin: 0 24rpx 24rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+
+.logout-section {
+  display: flex;
+  justify-content: center;
+}
+
+.logout-btn {
+  color: #e53935;
+  font-size: 28rpx;
+  padding: 12rpx 60rpx;
 }
 
 .section-title {

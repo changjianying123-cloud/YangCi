@@ -35,9 +35,9 @@ router.get('/:cardId', authMiddleware, async (req: Request, res: Response) => {
 });
 
 router.post('/:cardId/feed', authMiddleware, async (req: Request, res: Response) => {
-  const { spell_correct } = req.body;
+  const { spell_correct, recover_hunger } = req.body;
   try {
-    const data = await feedCard(req.userId!, Number(req.params.cardId), !!spell_correct);
+    const data = await feedCard(req.userId!, Number(req.params.cardId), !!spell_correct, !!recover_hunger);
 
     if (data.done) {
       ok(res, data, data.message || '喂养成功');
@@ -66,6 +66,17 @@ router.post('/:cardId/abandon', authMiddleware, async (req: Request, res: Respon
     ok(res, null, '已遗弃该单词');
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '遗弃失败');
+  }
+});
+
+router.post('/recover-hunger', authMiddleware, async (req: Request, res: Response) => {
+  const { card_id } = req.body;
+  if (!card_id) return fail(res, 400, '缺少 card_id');
+  try {
+    const data = await feedCard(req.userId!, Number(card_id), true, true);
+    ok(res, data, '饥饿恢复成功，开始喂养吧！');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '恢复失败');
   }
 });
 

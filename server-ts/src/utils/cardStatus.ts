@@ -2,6 +2,28 @@ import { config } from '../config';
 import { CardStatus, MoodType } from '../types';
 
 /**
+ * 获取喂养的金币收益（健康状态喂养 = 等级对应的金币）
+ */
+export function getFeedCoinReward(level: number): number {
+  if (!config.coins.feedCoinPerLevel) return 1;
+  return Math.max(1, level);
+}
+
+/**
+ * 判断饥饿状态下是否需要先消耗金币恢复
+ */
+export function isHungryNeedCoins(status: CardStatus): boolean {
+  return status === 'hungry' || status === 'downgraded';
+}
+
+/**
+ * 检查用户是否有足够金币恢复饥饿
+ */
+export function canAffordRecover(coins: number): boolean {
+  return coins >= config.coins.recoverCost;
+}
+
+/**
  * 计算卡牌当前状态
  */
 export function computeCardStatus(

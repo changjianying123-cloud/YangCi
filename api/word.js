@@ -14,3 +14,17 @@ export function catchWord(wordId, correctCount) {
 export function getWordDetail(wordId) {
   return request(`/word/${wordId}`);
 }
+
+export function checkCatchableWord(wordId) {
+  return request('/word/check-catchable', {
+    method: 'POST',
+    data: { word_id: wordId },
+  });
+}
+
+export function batchCatchWords(wordIds) {
+  return request('/word/batch-catch', {
+    method: 'POST',
+    data: { word_ids: wordIds },
+  });
+}

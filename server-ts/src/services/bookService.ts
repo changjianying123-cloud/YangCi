@@ -10,7 +10,7 @@ export async function listBooks(userId: number) {
       COUNT(DISTINCT uc.id) AS caught_count
     FROM books b
     LEFT JOIN words w ON w.book_id = b.id
-    LEFT JOIN user_cards uc ON uc.word_id = w.id AND uc.user_id = ?
+    LEFT JOIN user_cards uc ON uc.word_id = w.id AND uc.user_id = ? AND (uc.abandoned IS NULL OR uc.abandoned = 0)
     GROUP BY b.id
     ORDER BY b.id ASC
     `,

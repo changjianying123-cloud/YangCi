@@ -7,6 +7,13 @@ export async function getUserStats(userId: number) {
   const totalCards = await getCardCount(userId);
 
   const now = Date.now();
+
+  // 获取用户金币
+  const [userRows] = await pool.execute<RowDataPacket[]>(
+    'SELECT coins FROM users WHERE id = ?',
+    [userId]
+  );
+  const coins = Number(userRows[0]?.coins) || 0;
   const [statusRows] = await pool.execute<RowDataPacket[]>(
     `
     SELECT
@@ -15,7 +22,7 @@ export async function getUserStats(userId: number) {
       SUM(CASE WHEN is_egg = 1 THEN 1 ELSE 0 END) AS egg_count,
       SUM(CASE WHEN is_egg = 0 AND feed_deadline > ? THEN 1 ELSE 0 END) AS healthy_count
     FROM user_cards
-    WHERE user_id = ?
+    WHERE user_id = ? AND (abandoned IS NULL OR abandoned = 0)
     `,
     [now, now, now, config.card.downgradeThresholdMs, now, userId]
   );
@@ -30,7 +37,7 @@ export async function getUserStats(userId: number) {
     SELECT b.book_code, b.book_name, COUNT(uc.id) AS caught_count
     FROM books b
     LEFT JOIN words w ON w.book_id = b.id
-    LEFT JOIN user_cards uc ON uc.word_id = w.id AND uc.user_id = ?
+    LEFT JOIN user_cards uc ON uc.word_id = w.id AND uc.user_id = ? AND (uc.abandoned IS NULL OR uc.abandoned = 0)
     GROUP BY b.id
     ORDER BY b.id
     `,
@@ -50,6 +57,7 @@ export async function getUserStats(userId: number) {
 
   return {
     totalCards,
+    coins,
     healthyCount: Number(statusRows[0]?.healthy_count) || 0,
     hungryCount: Number(statusRows[0]?.hungry_count) || 0,
     eggCount: Number(statusRows[0]?.egg_count) || 0,

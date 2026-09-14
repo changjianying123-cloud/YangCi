@@ -15,7 +15,12 @@
           <text class="num">{{ normalCount }}</text>
           <text class="label">健康</text>
         </view>
+        <view class="summary-item coin">
+          <text class="num">💰 {{ coins }}</text>
+          <text class="label">金币</text>
+        </view>
       </view>
+      <button class="battle-btn" @click="goBattle">⚔️ 单词对战</button>
     </view>
 
     <view class="filter-bar">
@@ -38,12 +43,14 @@
       <button class="primary-btn" @click="goSelectBook">去收服</button>
     </view>
     <view v-else class="card-grid">
-      <WordCard
+      <view
         v-for="card in filteredCards"
         :key="card.id"
-        :card="card"
-        @click="onCardClick"
-      />
+        class="grid-item"
+        @click="onCardClick(card)"
+      >
+        <WordCard :card="card" />
+      </view>
     </view>
 
     <AppTabBar current="/pages/index/index" />
@@ -67,6 +74,7 @@ export default {
         { label: '饥饿', value: 'hungry' },
         { label: '单词蛋', value: 'egg' },
       ],
+      coins: 0,
     };
   },
   computed: {
@@ -96,12 +104,25 @@ export default {
   methods: {
     async loadData() {
       this.loading = true;
-      await store.ensureLogin();
-      await store.fetchCards(true);
-      this.loading = false;
+      try {
+        await store.ensureLogin();
+        await store.fetchCards(true);
+        // 从卡牌列表获取金币（第一张卡带coins字段）
+        if (store.state.cards.length > 0 && store.state.cards[0].coins !== undefined) {
+          this.coins = store.state.cards[0].coins;
+        }
+      } catch (e) {
+        console.error('loadData err:', e);
+        uni.showToast({ title: '加载失败，请重试', icon: 'none' });
+      } finally {
+        this.loading = false;
+      }
     },
     goSelectBook() {
       uni.reLaunch({ url: '/pages/book/select' });
+    },
+    goBattle() {
+      uni.navigateTo({ url: '/pages/battle/battle' });
     },
     onCardClick(card) {
       uni.navigateTo({ url: `/pages/word/feed?cardId=${card.id}` });
@@ -133,98 +154,104 @@ export default {
 
 .summary {
   display: flex;
-  flex-direction: row;
+  gap: 16rpx;
 }
 
 .summary-item {
   flex: 1;
   background: rgba(255, 255, 255, 0.2);
   border-radius: 16rpx;
-  padding: 24rpx 12rpx;
+  padding: 20rpx;
   text-align: center;
-  margin-right: 16rpx;
-}
-
-.summary-item:last-child {
-  margin-right: 0;
 }
 
 .summary-item.warn {
   background: rgba(255, 152, 0, 0.35);
 }
 
+.summary-item.coin {
+  background: rgba(255, 215, 0, 0.35);
+}
+
+.battle-btn {
+  margin-top: 28rpx;
+  background: #ffd54f;
+  color: #5d4037;
+  font-size: 30rpx;
+  font-weight: bold;
+  border-radius: 40rpx;
+  width: 360rpx;
+  padding: 8rpx 0;
+}
+
 .num {
   display: block;
-  font-size: 40rpx;
+  font-size: 36rpx;
   font-weight: bold;
   color: #fff;
 }
 
 .label {
   display: block;
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.85);
-  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 4rpx;
 }
 
 .filter-bar {
   display: flex;
-  flex-direction: row;
-  padding: 24rpx 24rpx 16rpx;
+  padding: 16rpx 24rpx;
+  gap: 16rpx;
 }
 
 .filter-item {
-  padding: 12rpx 28rpx;
-  background: #fff;
-  border-radius: 40rpx;
   font-size: 26rpx;
-  color: #666;
-  margin-right: 16rpx;
-  white-space: nowrap;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+  color: #999;
+  padding: 8rpx 20rpx;
+  border-radius: 24rpx;
+  background: #fff;
 }
 
 .filter-item.active {
-  background: #4a90e2;
-  color: #fff;
-}
-
-/* 改用 flex 实现两列（微信小程序不支持 grid） */
-.card-grid {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  padding: 0 20rpx 20rpx;
-}
-
-.card-grid > .word-card {
-  width: calc(50% - 14rpx);
-  margin-bottom: 20rpx;
-}
-
-.card-grid > .word-card:nth-child(odd) {
-  margin-right: 14rpx;
+  color: #4a90e2;
+  background: rgba(74, 144, 226, 0.12);
+  font-weight: bold;
 }
 
 .empty {
   text-align: center;
-  padding: 120rpx 40rpx;
-  color: #999;
-  font-size: 28rpx;
+  padding: 120rpx 24rpx;
 }
 
-.empty-icon,
 .loading-icon {
+  font-size: 48rpx;
   display: block;
+  margin-bottom: 16rpx;
+}
+
+.empty-icon {
   font-size: 80rpx;
+  display: block;
   margin-bottom: 16rpx;
 }
 
 .primary-btn {
-  margin-top: 32rpx;
   background: #4a90e2;
   color: #fff;
   border-radius: 40rpx;
-  width: 280rpx;
+  margin-top: 32rpx;
+  width: 300rpx;
+}
+
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0 16rpx 24rpx;
+}
+
+.grid-item {
+  width: 50%;
+  box-sizing: border-box;
+  padding: 8rpx;
 }
 </style>

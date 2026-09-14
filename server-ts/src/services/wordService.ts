@@ -36,14 +36,31 @@ export async function catchWord(userId: number, wordId: number, correctCount: nu
   );
   if (!wordRows[0]) throw new Error('单词不存在');
 
+  const now = Date.now();
+  const sd = nextFeedSchedule(0, 0, now);
+
+  // 已收服过的（含未遗弃的）直接复用现有卡牌，不重复 INSERT、不重复发币
+  const [existingRows] = await pool.execute<UserCardRow[]>(
+    'SELECT * FROM user_cards WHERE user_id = ? AND word_id = ? AND (abandoned IS NULL OR abandoned = 0)',
+    [userId, wordId]
+  );
+  if (existingRows[0]) {
+    return { cardId: existingRows[0].id, reactivated: false, alreadyCaptured: true, coinReward: 0 };
+  }
+
   // 已遗弃的可以重新激活
   const [abandonedRows] = await pool.execute<UserCardRow[]>(
     'SELECT * FROM user_cards WHERE user_id = ? AND word_id = ? AND abandoned = 1',
     [userId, wordId]
   );
 
-  const now = Date.now();
-  const sd = nextFeedSchedule(0, 0, now);
+  if (!abandonedRows[0]) {
+    // 真正新收服才发币
+    await pool.execute(
+      'UPDATE users SET coins = coins + ? WHERE id = ?',
+      [config.coins.catchReward, userId]
+    );
+  }
 
   if (abandonedRows[0]) {
     // 重新激活
@@ -56,7 +73,7 @@ export async function catchWord(userId: number, wordId: number, correctCount: nu
        WHERE id = ?`,
       [sd.level, sd.feedDeadline, sd.feedWindowEnd, now, abandonedRows[0].id]
     );
-    return { cardId: abandonedRows[0].id, reactivated: true };
+    return { cardId: abandonedRows[0].id, reactivated: true, coinReward: config.coins.catchReward };
   }
 
   try {
@@ -65,7 +82,7 @@ export async function catchWord(userId: number, wordId: number, correctCount: nu
        VALUES (?, ?, ?, ?, ?, ?, 0, 0)`,
       [userId, wordId, sd.level, sd.feedDeadline, sd.feedWindowEnd, now]
     );
-    return { cardId: result.insertId, reactivated: false };
+    return { cardId: result.insertId, reactivated: false, coinReward: config.coins.catchReward };
   } catch (err: unknown) {
     const e = err as { code?: string };
     if (e.code === 'ER_DUP_ENTRY') {
@@ -82,6 +99,22 @@ export async function checkCatchProgress(userId: number, wordId: number, correct
   }
   const result = await catchWord(userId, wordId, correctCount);
   return { captured: true, count: correctCount, required, ...result };
+}
+
+export async function checkCatchable(userId: number, wordId: number) {
+  const [wordRows] = await pool.execute<WordRow[]>(
+    'SELECT * FROM words WHERE id = ?',
+    [wordId]
+  );
+  if (!wordRows[0]) return { catchable: false, reason: '单词不存在' };
+
+  const [existingRows] = await pool.execute<UserCardRow[]>(
+    'SELECT id FROM user_cards WHERE user_id = ? AND word_id = ? AND (abandoned IS NULL OR abandoned = 0)',
+    [userId, wordId]
+  );
+  if (existingRows[0]) return { catchable: false, reason: '该单词已被收服' };
+
+  return { catchable: true };
 }
 
 export async function listCapturedWordIds(userId: number) {

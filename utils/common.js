@@ -81,3 +81,17 @@ export function moodSymbol(mood) {
   };
   return map[mood] || '';
 }
+
+/**
+ * 格式化金币显示
+ */
+export function formatCoins(coins) {
+  return `💰 ${coins || 0}`;
+}
+
+/**
+ * 获取饥饿恢复所需金币
+ */
+export function getRecoverCost() {
+  return 10;
+}

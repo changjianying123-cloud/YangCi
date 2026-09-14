@@ -8,3 +8,6 @@ server-ts/dist/
 *.local
 unpackage/
 dist/
+.hbuilderx/
+server-ts/scripts/_pos_backup_*.json
+server-ts/scripts/_*.cjs
