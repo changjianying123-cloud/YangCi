@@ -48,9 +48,13 @@ export function getPlayQuestion(cardId, mode = 'pick') {
   return request(`/card/${cardId}/play${q}`);
 }
 
-/** 玩耍：随机取另一张可玩的卡（“继续玩耍”换单词） */
-export function getRandomPlayCard(excludeCardId) {
-  const q = excludeCardId ? `?exclude=${excludeCardId}` : '';
+/** 玩耍：随机取另一张可玩的卡（“继续玩耍”换单词）
+ *  mood='sad'|'none'|'happy' 时只在所选心情范围内换词（与列表筛选保持一致） */
+export function getRandomPlayCard(excludeCardId, mood) {
+  const parts = [];
+  if (excludeCardId) parts.push(`exclude=${excludeCardId}`);
+  if (mood) parts.push(`mood=${mood}`);
+  const q = parts.length ? `?${parts.join('&')}` : '';
   return request(`/card/play/random${q}`);
 }
 

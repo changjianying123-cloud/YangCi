@@ -32,11 +32,15 @@ router.get('/count', authMiddleware, async (req: Request, res: Response) => {
   ok(res, { count });
 });
 
-// 随机另一张可玩的卡（“继续玩耍”换单词用）—— ⚠️ 必须在 /:cardId 之前注册，否则会被当成 cardId
+// 随机另一张可玩的卡（“继续玩耍”换单词用）
+// mood=sad|none|happy 时，只在所选心情范围内换词（与列表筛选一致）
+// ⚠️ 必须在 /:cardId 之前注册，否则会被当成 cardId
 router.get('/play/random', authMiddleware, async (req: Request, res: Response) => {
   const exclude = req.query.exclude ? Number(req.query.exclude) : undefined;
+  const moodRaw = typeof req.query.mood === 'string' ? req.query.mood : undefined;
+  const mood = moodRaw === 'sad' || moodRaw === 'none' || moodRaw === 'happy' ? moodRaw : undefined;
   try {
-    const data = await pickRandomPlayableCard(req.userId!, exclude);
+    const data = await pickRandomPlayableCard(req.userId!, exclude, mood);
     if (!data) return fail(res, 404, '没有其它可玩耍的单词了');
     ok(res, data);
   } catch (err: unknown) {

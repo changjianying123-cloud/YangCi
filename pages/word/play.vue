@@ -115,7 +115,7 @@
       <!-- 说明 -->
       <view class="tips">
         <text class="tip-line">🎈 玩耍和喂养一样，都算复习这个单词</text>
-        <text class="tip-line">🔀 点「继续玩耍」会换成另一个单词</text>
+        <text class="tip-line">🔀 点「继续玩耍」会换成另一个单词{{ moodFilter ? '（同心情范围内）' : '' }}</text>
         <text class="tip-line">{{ isTranslate ? '✍️ 写出任意一个中文义项就算对' : '📝 从四个中文里选出正确的一个' }}</text>
         <text class="tip-line">😊 连续答对让它开心，它会给你金币</text>
       </view>
@@ -156,6 +156,7 @@ export default {
       correctStreak: 0,
       loading: false,
       switching: false, // 换词中，防连点
+      moodFilter: '', // 当前心情筛选（''=不限），限定「继续玩耍」换词范围
     };
   },
   computed: {
@@ -187,6 +188,8 @@ export default {
   onLoad(options) {
     this.cardId = options.cardId;
     this.mode = options.mode === 'translate' ? 'translate' : 'pick';
+    // 从列表带过来的心情筛选：限定「继续玩耍」换词的范围
+    this.moodFilter = ['sad', 'none', 'happy'].includes(options.mood) ? options.mood : '';
     this.loadQuestion();
   },
   methods: {
@@ -312,7 +315,7 @@ export default {
       if (this.switching) return;
       this.switching = true;
       try {
-        const res = await getRandomPlayCard(this.cardId);
+        const res = await getRandomPlayCard(this.cardId, this.moodFilter);
         if (res.data && res.data.cardId) {
           // 若换了单词，重新拉该词的题目
           if (Number(res.data.cardId) !== Number(this.cardId)) {
@@ -322,12 +325,12 @@ export default {
           await this.loadQuestion();
         } else {
           // 只有这一张卡了 → 原词再出一题
-          uni.showToast({ title: '只有这一个单词，再玩一题吧', icon: 'none', duration: 1500 });
+          uni.showToast({ title: this.moodFilter ? '这个心情下只有这一个单词，再玩一题吧' : '只有这一个单词，再玩一题吧', icon: 'none', duration: 1800 });
           await this.loadQuestion();
         }
       } catch (e) {
-        // 没有其它可玩的词 → 原词继续
-        uni.showToast({ title: '没有其它可玩耍的单词了', icon: 'none', duration: 1500 });
+        // 没有其它可玩的词（可能被心情筛选限制住了）→ 原词继续
+        uni.showToast({ title: this.moodFilter ? '这个心情下没有其它可玩的单词了' : '没有其它可玩耍的单词了', icon: 'none', duration: 1800 });
         await this.loadQuestion();
       } finally {
         this.switching = false;

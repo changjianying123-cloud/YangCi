@@ -195,7 +195,9 @@ export default {
         itemList: ['📝 选词四选一（看英文选中文）', '✍️ 英译汉（看英文打中文）'],
         success: (res) => {
           const mode = res.tapIndex === 1 ? 'translate' : 'pick';
-          uni.navigateTo({ url: `/pages/word/play?cardId=${card.id}&mode=${mode}` });
+          // 带上当前心情筛选，让「继续玩耍」换词时也只在同一心情范围内换
+          const moodQ = this.currentMood !== 'all' ? `&mood=${this.currentMood}` : '';
+          uni.navigateTo({ url: `/pages/word/play?cardId=${card.id}&mode=${mode}${moodQ}` });
         },
         fail: () => { /* 用户取消 */ },
       });

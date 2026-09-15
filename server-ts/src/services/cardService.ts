@@ -649,9 +649,34 @@ function assertPlayable(card: UserCardRow): void {
  * 随机挑一张可玩耍的卡（排除当前的 cardId）。
  * “继续玩耍”换一个单词，但不能把用户自己带上别的卡。
  * ⚠️ 饥饿 / 降级 / 蛋 的卡都不能进随机池（跟 assertPlayable 同口径）
+ *
+ * mood：可选心情筛选。用户在列表里选了「心情不好 / 平静」再进来玩耍时，
+ * 换词也应该只在所筛选的心情范围内换（否则挑到开心卡，刷心情就白筛了）。
+ *
+ * ⚠️ 只按 mood_score（真实档位）过滤，**不看 had_wrong_attempt**：
+ *    那个字段是「喂养拼写答错」的进行中标记，属于喂养流程，跟玩耍无关；
+ *    它的 sad 只是展示层的临时叠加，若拿来过滤会把一张真正开心的卡
+ *    从 happy 池里错误地剔除（用户会看到列表有这张卡、却永远换不到）。
+ *    饥饿/蛋同理：先由下边的「可玩耍」窗口条件排除，不靠 mood。
  */
-export async function pickRandomPlayableCard(userId: number, excludeCardId?: number) {
+export async function pickRandomPlayableCard(userId: number, excludeCardId?: number, mood?: MoodType) {
   const now = Date.now();
+  const params: unknown[] = [userId, now, now, now];
+  let moodSql = '';
+  if (mood === 'happy' || mood === 'sad' || mood === 'none') {
+    // 按 mood_score 档位过滤，与 moodOf() 的阈值保持同一套 config（scoreHappy/scoreSad）
+    if (mood === 'happy') {
+      moodSql = ' AND uc.mood_score >= ?';
+      params.push(config.play.scoreHappy);
+    } else if (mood === 'sad') {
+      moodSql = ' AND uc.mood_score <= ?';
+      params.push(config.play.scoreSad);
+    } else {
+      moodSql = ' AND (uc.mood_score < ? AND uc.mood_score > ?)';
+      params.push(config.play.scoreHappy, config.play.scoreSad);
+    }
+  }
+  params.push(excludeCardId ?? null, excludeCardId ?? null);
   const [rows] = await pool.query<UserCardRow[]>(
     `SELECT uc.id, w.word
      FROM user_cards uc
@@ -664,9 +689,10 @@ export async function pickRandomPlayableCard(userId: number, excludeCardId?: num
          (uc.feed_deadline > ?)                      -- 还没到喂养时间（健康）
          OR (? >= uc.feed_deadline AND ? < uc.feed_window_end)  -- 正在喂养窗口内
        )
+       ${moodSql}
        AND (? IS NULL OR uc.id <> ?)
      ORDER BY RAND() LIMIT 1`,
-    [userId, now, now, now, excludeCardId ?? null, excludeCardId ?? null]
+    params
   );
   if (!rows[0]) return null;
   return { cardId: rows[0].id, word: rows[0].word || '' };
