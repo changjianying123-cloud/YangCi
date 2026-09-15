@@ -176,8 +176,8 @@
 
       <view class="rules-card">
         <text class="rules-title">词性 = 技能</text>
-        <view class="rule"><text class="tag n">名词</text><text class="rt">拼对 → 给自己或队友叠 1 层屏障（每层挡一次攻击）</text></view>
-        <view class="rule"><text class="tag d">形容词</text><text class="rt">拼对 → 给某名词 +1 层屏障（强化防御）</text></view>
+        <view class="rule"><text class="tag n">名词</text><text class="rt">拼对 → 给自己或队友叠屏障（放盾量 = 1 + 自身护盾强度，每层挡一次攻击）</text></view>
+        <view class="rule"><text class="tag d">形容词</text><text class="rt">拼对 → 给某名词 +1 护盾强度（该名词后续放盾一次多叠 1 层）</text></view>
         <view class="rule"><text class="tag v">动词</text><text class="rt">拼对 → 攻击敌方前排（一击必杀，除非对方有屏障）</text></view>
         <view class="rule"><text class="tag a">副词</text><text class="rt">拼对 → 给某动词 +1 攻击层（每层=破盾时直接击穿击杀）</text></view>
       </view>

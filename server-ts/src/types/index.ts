@@ -119,7 +119,8 @@ export interface BattleUnit {
   hp: number;
   maxHp: number;
   atkBuff: number;     // 副词叠加的攻击加成层数
-  shield: number;      // 形容词叠加的护盾层数
+  shield: number;      // 当前护盾层数（每层=能挡一次攻击；0=一击必杀）
+  shieldBuff: number;  // 形容词叠加的「护盾强度」：名词放盾时每层多放 1 层盾（类比副词的 atkBuff）
   // 阵亡/复活
   dead: boolean;
   usedSkill: boolean;  // 发动过技能（默认 true；未用过技能就阵亡的可复活）

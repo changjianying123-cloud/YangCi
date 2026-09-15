@@ -17,6 +17,7 @@
     <view class="foot">
       <text class="lvl">Lv.{{ u.level }}</text>
       <text v-if="u.atkBuff > 0" class="badge atk">⚔️+{{ u.atkBuff }}</text>
+      <text v-if="u.shieldBuff > 0" class="badge sbuff">🛡️强化+{{ u.shieldBuff }}</text>
       <text v-if="u.dead" class="badge deadb">💀</text>
       <text v-else-if="u.usedSkill" class="badge acted">已出招</text>
     </view>
@@ -66,5 +67,5 @@ export default {
 .foot{ display:flex; align-items:center; justify-content:center; gap:5rpx; flex-wrap:wrap; }
 .lvl{ font-size:18rpx; color:#7a93b5; }
 .badge{ font-size:16rpx; padding:1rpx 7rpx; border-radius:8rpx; color:#fff;}
-.badge.atk{ background:#d32f2f;} .badge.deadb{background:#455a64;} .badge.acted{ background:#37474f; color:#b0bec5;}
+.badge.atk{ background:#d32f2f;} .badge.sbuff{ background:#3949ab;} .badge.deadb{background:#455a64;} .badge.acted{ background:#37474f; color:#b0bec5;}
 </style>

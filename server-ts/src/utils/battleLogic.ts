@@ -26,6 +26,7 @@ export function maxHpFor(level: number, role: BattleRole): number {
 
 export const ATK_BUFF_CAP = 3;    // 副词叠加上限（每层=破盾时穿透击杀）
 export const SHIELD_CAP = 3;      // 单名词护盾上限层（=能承受的攻击次数/命）
+export const SHIELD_BUFF_CAP = 3; // 形容词叠加的「护盾强度」上限（每层=名词放盾时多放1层）
 
 // ---------- 工具 ----------
 
@@ -140,27 +141,41 @@ export function useFrontSkill(
   let outcome: SkillOutcome = { log: '' };
   switch (u.role) {
     case 'noun': {
-      // 名词：保护自己或某个我方词 —— 叠护盾(1层，上限SHIELD_CAP)
+      // 名词：保护自己或某个我方词 —— 叠护盾。
+      // 放出层数 = 1 + 自身「护盾强度」(形容词强化的层数)，上限 SHIELD_CAP。
       const targetId = targetCardId || unitCardId;
       const t = findUnit(me, targetId) || u;
       if (t.dead) throw new Error('保护目标已阵亡');
       if (t.shieldBroken) throw new Error(`${t.word} 刚被破盾，本回合无法续盾`);
-      t.shield = Math.min(t.shield + 1, SHIELD_CAP);
+      const layers = 1 + (u.shieldBuff || 0);
+      const before = t.shield;
+      t.shield = Math.min(t.shield + layers, SHIELD_CAP);
+      const gained = t.shield - before;
       u.usedSkill = true;
-      outcome = { log: `${u.word}(名词) 为 ${t.word} 增加 1 层护盾`, shieldedCardId: t.cardId };
+      const buffTxt = u.shieldBuff > 0 ? `（含护盾强度 +${u.shieldBuff}）` : '';
+      outcome = { log: `${u.word}(名词) 为 ${t.word} 增加 ${gained} 层护盾${buffTxt}`, shieldedCardId: t.cardId };
       break;
     }
     case 'adjective': {
-      // 形容词：给目标名词叠护盾（只能加成名词的保人防御）
-      // 若全队没名词 → 降级为给自己的前排任意单位叠盾(不浪费行动)
+      // 形容词：给目标名词叠「护盾强度」(+1层)，类比副词给动词叠攻击。
+      // 名词下次放盾时，每有 1 层护盾强度就多放 1 层盾。
       let t = targetCardId ? findUnit(me, targetCardId) : undefined;
-      if (!t || t.dead || t.shieldBroken) t = standingQueue(me).map((id) => findUnit(me, id)).find((x): x is BattleUnit => !!x && !x.shieldBroken && x.role === 'noun');
-      if (!t) t = (u.shieldBroken ? undefined : u); // 没有可护名词 → 护自己(自身未被破盾时)
-      if (!t) throw new Error('当前没有可续盾的目标（均刚被破盾）');
-      if (t.role !== 'noun' && t !== u) throw new Error('形容词只能给名词增加护盾');
-      t.shield = Math.min(t.shield + 1, SHIELD_CAP);
+      if (!t || t.dead) t = standingQueue(me).map((id) => findUnit(me, id)).find((x): x is BattleUnit => !!x && !x.dead && x.role === 'noun');
+      if (!t) t = u; // 全队没名词 → 强加自己(不浪费行动)
+      if (t.role !== 'noun' && t !== u) throw new Error('形容词只能给名词增加护盾强度');
+      const before = t.shieldBuff || 0;
+      t.shieldBuff = Math.min(before + 1, SHIELD_BUFF_CAP);
       u.usedSkill = true;
-      outcome = { log: `${u.word}(形容词) 强化 ${t.word} 的护盾(+1层)`, shieldedCardId: t.cardId };
+      if (t.shieldBuff === before) {
+        // 已满上限：改为直接补盾，不浪费这一手
+        const sb = t.shield;
+        t.shield = Math.min(t.shield + 1, SHIELD_CAP);
+        outcome = t.shield > sb
+          ? { log: `${t.word}(名词) 护盾强度已满，${u.word}(形容词) 改为直接 +1 层盾`, shieldedCardId: t.cardId }
+          : { log: `${u.word}(形容词) 目标护盾强度与本回合盾量均已满` };
+      } else {
+        outcome = { log: `${u.word}(形容词) 强化 ${t.word} 的护盾强度(+1)：名词放盾时可一次放 ${1 + t.shieldBuff} 层`, buffedCardId: t.cardId };
+      }
       break;
     }
     case 'verb': {

@@ -130,6 +130,7 @@ function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: Batt
     hp: BL.maxHpFor(c.level, role),
     atkBuff: 0,
     shield: 0,
+    shieldBuff: 0,
     dead: false,
     usedSkill: false,
     revived: false,
@@ -496,11 +497,11 @@ function aiAct(snap: BattleSnapshot) {
   const nounFront = pick('noun');
   const adjFront = pick('adjective');
   const advFront = pick('adverb');
-  // 强化目标：优先还设出手的动词(副词)/名词(形容词)
+  // 强化目标：优先还没出手的动词(副词)/名词(形容词)
   const verbTarget = pickTarget('verb');
   const nounTarget = pickTarget('noun');
 
-  // 攻击优先；一击必杀制下优先攻击「无屏障」目标（可直接击杀）；有副词先强化未出手动词，有形容词先叠盾，剩的拿名词自保
+  // 攻击优先；一击必杀制下优先攻击「无屏障」目标（可直接击杀）；有副词先强化未出手动词，有形容词先叠护盾强度，剩的拿名词自保
   if (verbFront && foeTargets.length) {
     // 先找无屏障目标（可直接击杀），否则挑屏障最少的
     const noShield = foeTargets.find((t) => (t.shield || 0) === 0 && !t.shieldBroken) || foeTargets.find((t) => (t.shield || 0) === 0);
@@ -512,11 +513,11 @@ function aiAct(snap: BattleSnapshot) {
   if (advFront && verbTarget && verbTarget.atkBuff < BL.ATK_BUFF_CAP) {
     plan.push({ unitId: advFront.cardId, kind: 'skill', target: verbTarget.cardId });
   }
-  // 形容词：给没有屏障的名词补盾（防被一击必杀）
-  if (adjFront && nounTarget && nounTarget.shield < BL.SHIELD_CAP && !nounTarget.shieldBroken) {
+  // 形容词：给「未满护盾强度」的名词叠强度（类比副词→动词）
+  if (adjFront && nounTarget && (nounTarget.shieldBuff || 0) < BL.SHIELD_BUFF_CAP) {
     plan.push({ unitId: adjFront.cardId, kind: 'skill', target: nounTarget.cardId });
   }
-  // 名词自保：优先给「无屏障」的友军(包括自己)叠盾
+  // 名词放盾：优先给「无屏障」的友军(包括自己)补盾；有护盾强度时放盾量更大
   if (nounFront) {
     const needShield = BL.standingQueue(me)
       .map((id) => me.units.find((x) => x.cardId === id))
