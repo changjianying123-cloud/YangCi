@@ -38,6 +38,16 @@
               <text v-else-if="picked === opt.text" class="option-mark">❌</text>
             </view>
           </view>
+          <!-- 选词模式没有输入框，用一个隐形输入框拦回车：
+               答对后回车 = 继续玩耍（换词） -->
+          <input
+            class="ghost-input"
+            :focus="pickFocus"
+            :hold-keyboard="true"
+            :adjust-position="false"
+            confirm-type="done"
+            @confirm="onPickEnter"
+          />
         </block>
 
         <!-- ===== 玩法 2：英译汉（手打中文） ===== -->
@@ -51,7 +61,7 @@
               :focus="inputFocus"
               placeholder="输入中文意思…"
               confirm-type="done"
-              @confirm="submitTyped"
+              @confirm="onTranslateConfirm"
             />
           </view>
           <button
@@ -110,6 +120,7 @@
         <button v-if="hasTried && (lastCorrect || !isTranslate)" class="next-btn" @click="nextQuestion">
           🎈 继续玩耍（换成另一个单词）
         </button>
+        <text v-if="hasTried && lastCorrect" class="next-hint">↵ 直接回车也能继续</text>
       </view>
 
       <!-- 说明 -->
@@ -149,6 +160,7 @@ export default {
       acceptedList: [], // 英译汉答错时列出的可接受答案
       typed: '',        // 英译汉用户输入
       inputFocus: true, // 输入框聚焦
+      pickFocus: false, // 选词四选一的隐形输入框聚焦（用于拦回车）
       cleared: false,   // 本题是否已答对（答对才允许换词）
       hasTried: false,  // 本题是否至少提交过一次
       moodNow: 'none',
@@ -222,6 +234,8 @@ export default {
           this.hasTried = false;
           // 英译汉需要弹键盘；小程序 focus 已是 true 时不会再弹 → false→true 闪一下
           if (this.isTranslate) this.refocusInput();
+          // 选词模式挂上隐形输入框，让回车能触发「继续玩耍」
+          this.focusPickInput();
         }
       } catch (e) {
         // request.js 已经弹过一次 toast，这里不再重复；只负责把用户退回上一页，
@@ -235,6 +249,38 @@ export default {
     refocusInput() {
       this.inputFocus = false;
       this.$nextTick(() => { this.inputFocus = true; });
+    },
+    // 选词模式：挂上隐形输入框（同样 false→true 闪烁），让它能拦到回车
+    focusPickInput() {
+      if (this.isTranslate) return;
+      this.pickFocus = false;
+      this.$nextTick(() => { this.pickFocus = true; });
+    },
+    /**
+     * 选词四选一的隐形输入框回车：
+     *  答对 → 继续玩耍（换词）
+     *  未答对 → 什么都不做（等用户先选答案）
+     * ⚠️ 回车后要重新聚焦，否则下一次回车就拦不到了
+     */
+    onPickEnter() {
+      if (this.hasTried && this.lastCorrect) {
+        this.nextQuestion();
+        return;
+      }
+      this.pickFocus = false;
+      this.$nextTick(() => { this.pickFocus = true; });
+    },
+    /**
+     * 英译汉输入框回车：
+     *  已答对 → 继续玩耍（换词）（此时输入框已禁用，仍兜住这个按键）
+     *  未答对 → 提交答案（首次）/ 重答都走这条
+     */
+    onTranslateConfirm() {
+      if (this.hasTried && this.lastCorrect) {
+        this.nextQuestion();
+        return;
+      }
+      this.submitAnswer();
     },
     // 英译汉：提交手打的中文（首次作答）
     async submitTyped() {
@@ -658,6 +704,25 @@ export default {
   font-size: 30rpx;
   line-height: 84rpx;
   height: 84rpx;
+}
+
+.next-hint {
+  display: block;
+  text-align: center;
+  font-size: 23rpx;
+  color: #9e9e9e;
+  margin-top: 12rpx;
+}
+
+/* 选词模式的隐形输入框：只用来拦回车，不占位、不可见、不顶起页面 */
+.ghost-input {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 1rpx;
+  height: 1rpx;
+  opacity: 0;
+  z-index: -1;
 }
 
 /* 说明 */
