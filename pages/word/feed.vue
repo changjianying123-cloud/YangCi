@@ -180,14 +180,20 @@ export default {
       }
       uni.showModal({
         title: '恢复饥饿',
-        content: `消耗 10 💰 恢复「${this.card.word}」的饥饿状态？恢复后即可开始喂养，但饥饿状态下喂养无金币奖励。`,
+        content: `消耗 10 💰 恢复「${this.card.word}」的饥饿状态？恢复后即可开始拼写喂养，还需拼对 3 次才算喂养成功。`,
         success: async (modalRes) => {
           if (!modalRes.confirm) return;
           this.recovering = true;
           try {
             const res = await recoverHunger(this.cardId);
             if (res.data) {
-              uni.showToast({ title: '恢复成功！可以开始喂养', icon: 'success' });
+              const left = res.data.remaining != null ? res.data.remaining : 3;
+              uni.showToast({
+                title: `恢复成功！还需拼对 ${left} 次`,
+                icon: 'none',
+                duration: 2000,
+              });
+              // 刷新后进度应保持原样（恢复不推进拼写计数）
               await this.loadCard();
               await store.fetchCards(true);
             }

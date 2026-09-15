@@ -183,7 +183,7 @@ function getRequiredFeedsForLevel(_level: number): number {
   return config.card.feedSpellCount || 3;
 }
 
-export async function feedCard(userId: number, cardId: number, spellCorrect: boolean, recoverHunger: boolean = false) {
+export async function feedCard(userId: number, cardId: number, spellCorrect: boolean) {
   const now = Date.now();
 
   const [rows] = await pool.execute<UserCardRow[]>(
@@ -210,7 +210,8 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
 
   // 判断当前状态：是否饥饿（需要扣钱恢复）
   const isHungryStatus = row.hunger_start_at !== null;
-  const feedingInHunger = isHungryStatus && (recoverHunger || !inNormalWindow && !inRemedialWindow);
+  // 饥饿状态（且不在喂养窗口内）不允许直接喂养，必须先调 recoverHunger
+  const feedingInHunger = false;
 
   // 本轮喂养的拼写次数要求：健康喂养与「拼错后补考」统一，都是 3 次，
   // 避免中途 required 跳变导致前端进度出现 1→2→3 这种反过来的显示
@@ -218,41 +219,12 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
   // 已拼对次数（拼错会归零，所以这里就是本轮进度）
   const alreadyCorrect = Math.max(0, Math.min(row.feed_spell_count || 0, requiredFeeds));
 
-  // 饥饿状态下，必须花费金币恢复才能喂养
+  // 饥饿状态下不能直接喂养，必须先调 recoverHunger 恢复（恢复不计拼写进度）
   if (isHungryStatus && !inNormalWindow && !inRemedialWindow) {
-    if (!recoverHunger) {
-      throw new Error('单词饥饿中，需要消耗10金币恢复后才能喂养');
-    }
-    if (userCoins < config.coins.recoverCost) {
-      throw new Error('金币不足，无法恢复饥饿状态');
-    }
-    // 扣金币
-    await pool.execute(
-      'UPDATE users SET coins = coins - ? WHERE id = ?',
-      [config.coins.recoverCost, userId]
-    );
+    throw new Error('单词饥饿中，需要先消耗10金币恢复后才能喂养');
   }
 
-  // 如果不在正常窗口也不在补救窗口，但已扣费恢复，则强行开启窗口
-  if (!inNormalWindow && !inRemedialWindow && isHungryStatus && recoverHunger) {
-    // 将 feed_deadline 设置为现在（饥饿恢复后立即可以喂养）
-    await pool.execute(
-      `UPDATE user_cards
-       SET feed_deadline = ?, feed_window_end = ?,
-           hunger_start_at = NULL, downgrade_count = 0
-       WHERE id = ?`,
-      [now, now + config.card.hungerWindowMs, cardId]
-    );
-    // 重新读取
-    const [updatedRows] = await pool.execute<UserCardRow[]>(
-      `SELECT * FROM user_cards WHERE id = ? AND user_id = ?`,
-      [cardId, userId]
-    );
-    row.feed_deadline = now;
-    row.feed_window_end = now + config.card.hungerWindowMs;
-    row.hunger_start_at = null;
-    row.downgrade_count = 0;
-  } else if (!inNormalWindow && !inRemedialWindow && !feedingInHunger) {
+  if (!inNormalWindow && !inRemedialWindow && !feedingInHunger) {
     throw new Error('现在不是喂养时间');
   }
 
@@ -296,9 +268,8 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
   // 本轮是否有补救窗口，且本次喂养是否在补救窗口中
   const feedingInRemedialWindow = inRemedialWindow && row.remedial_feed_at !== null;
   // 是否在饥饿恢复后喂养（饥饿状态不获得金币）
-  const feedingAfterHungerRecover = feedingInHunger || (isHungryStatus && (recoverHunger || !inNormalWindow && !inRemedialWindow));
-  // 是否是正常健康状态喂养（可以获得金币）
-  const isHealthyFeed = !isHungryStatus && (inNormalWindow || inRemedialWindow) && !feedingAfterHungerRecover;
+  const feedingAfterHungerRecover = false;
+  const isHealthyFeed = !isHungryStatus && (inNormalWindow || inRemedialWindow);
 
   // 🌟 金币奖励：健康状态喂养成功获得等级对应金币
   let coinReward = 0;
@@ -397,6 +368,64 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
 export async function getPendingFeedCards(userId: number) {
   const cards = await listUserCards(userId);
   return cards.filter((c) => c.canFeed);
+}
+
+/**
+ * 恢复饥饿状态（只恢复，不算一次拼写正确）
+ * - 消耗 recoverCost 金币
+ * - 清 hunger_start_at / downgrade_count，并开启一个可喂养窗口
+ * - ⚠️ 不动 feed_spell_count：恢复只是把「喂养机会」还给你，
+ *   拼写进度必须靠真正拼对来推进。
+ */
+export async function recoverHunger(userId: number, cardId: number) {
+  const now = Date.now();
+
+  const [rows] = await pool.execute<UserCardRow[]>(
+    'SELECT * FROM user_cards WHERE id = ? AND user_id = ?',
+    [cardId, userId]
+  );
+  if (!rows[0]) throw new Error('卡牌不存在');
+  const row = rows[0];
+
+  if (row.is_egg) throw new Error('单词蛋需要孵化，不能恢复喂养');
+  if (row.abandoned) throw new Error('该卡牌已被遗弃');
+
+  const isHungryStatus = row.hunger_start_at !== null;
+  if (!isHungryStatus) throw new Error('该单词当前不处于饥饿状态，无需恢复');
+
+  const userCoins = await getUserCoins(userId);
+  if (userCoins < config.coins.recoverCost) {
+    throw new Error(`金币不足，恢复需消耗 ${config.coins.recoverCost} 金币`);
+  }
+
+  await pool.execute('UPDATE users SET coins = coins - ? WHERE id = ?', [
+    config.coins.recoverCost,
+    userId,
+  ]);
+
+  // 只恢复状态：立即开启喂养窗口，拼写计数保持原样
+  await pool.execute(
+    `UPDATE user_cards
+     SET feed_deadline = ?, feed_window_end = ?,
+         hunger_start_at = NULL, downgrade_count = 0
+     WHERE id = ?`,
+    [now, now + config.card.hungerWindowMs, cardId]
+  );
+
+  const required = Math.max(1, config.card.feedSpellCount || 3);
+  const alreadyCorrect = Math.max(0, Math.min(row.feed_spell_count || 0, required));
+
+  const card = await getCardDetail(userId, cardId);
+  return {
+    recovered: true,
+    card,
+    coinsSpent: config.coins.recoverCost,
+    coins: userCoins - config.coins.recoverCost,
+    // 拼写进度：恢复不会推进它，所以如实回传当前进度
+    count: alreadyCorrect,
+    required,
+    remaining: Math.max(0, required - alreadyCorrect),
+  };
 }
 
 export async function getCardCount(userId: number) {

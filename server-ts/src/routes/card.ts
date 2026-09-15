@@ -7,6 +7,7 @@ import {
   getCardCount,
   hatchEgg,
   abandonCard,
+  recoverHunger,
 } from '../services/cardService';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
@@ -35,9 +36,9 @@ router.get('/:cardId', authMiddleware, async (req: Request, res: Response) => {
 });
 
 router.post('/:cardId/feed', authMiddleware, async (req: Request, res: Response) => {
-  const { spell_correct, recover_hunger } = req.body;
+  const { spell_correct } = req.body;
   try {
-    const data = await feedCard(req.userId!, Number(req.params.cardId), !!spell_correct, !!recover_hunger);
+    const data = await feedCard(req.userId!, Number(req.params.cardId), !!spell_correct);
 
     if (data.done) {
       ok(res, data, data.message || '喂养成功');
@@ -73,7 +74,8 @@ router.post('/recover-hunger', authMiddleware, async (req: Request, res: Respons
   const { card_id } = req.body;
   if (!card_id) return fail(res, 400, '缺少 card_id');
   try {
-    const data = await feedCard(req.userId!, Number(card_id), true, true);
+    // 只恢复饥饿状态，不计入拼写进度（拼写必须靠真正拼对推进）
+    const data = await recoverHunger(req.userId!, Number(card_id));
     ok(res, data, '饥饿恢复成功，开始喂养吧！');
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '恢复失败');
