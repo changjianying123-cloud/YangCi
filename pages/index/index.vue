@@ -33,14 +33,28 @@
       >{{ item.label }}</text>
     </view>
 
+    <!-- 心情筛选（与状态筛选是正交的两个维度，可叠加）：
+         心情不好/平静的卡挑出来一起玩耍刷心情 -->
+    <view class="mood-bar">
+      <text
+        v-for="item in moodFilters"
+        :key="item.value"
+        class="mood-item"
+        :class="{ active: currentMood === item.value }"
+        @click="currentMood = item.value"
+      >{{ item.label }}</text>
+      <text v-if="currentMood !== 'all' || currentFilter !== 'all'" class="mood-clear" @click="clearFilters">清空筛选</text>
+    </view>
+
     <view v-if="loading" class="empty">
       <text class="loading-icon">⏳</text>
       <text>加载中...</text>
     </view>
     <view v-else-if="filteredCards.length === 0" class="empty">
       <text class="empty-icon">📭</text>
-      <text>还没有卡牌，去收服单词吧！</text>
-      <button class="primary-btn" @click="goSelectBook">去收服</button>
+      <text>{{ emptyText }}</text>
+      <button v-if="currentMood !== 'all' || currentFilter !== 'all'" class="primary-btn" @click="clearFilters">清空筛选</button>
+      <button v-else class="primary-btn" @click="goSelectBook">去收服</button>
     </view>
     <view v-else class="card-grid">
       <view
@@ -68,11 +82,17 @@ export default {
     return {
       loading: false,
       currentFilter: 'all',
+      currentMood: 'all',
       filters: [
         { label: '全部', value: 'all' },
         { label: '待喂养', value: 'feed' },
         { label: '饥饿', value: 'hungry' },
         { label: '单词蛋', value: 'egg' },
+      ],
+      moodFilters: [
+        { label: '😢 心情不好', value: 'sad' },
+        { label: '😐 平静', value: 'none' },
+        { label: '😊 开心', value: 'happy' },
       ],
       coins: 0,
     };
@@ -87,12 +107,27 @@ export default {
     normalCount() {
       return this.cards.filter((c) => c.status === 'normal').length;
     },
+    emptyText() {
+      if (this.currentMood === 'sad') return '没有心情不好的单词，很好！';
+      if (this.currentMood === 'none') return '没有平静心情的单词';
+      if (this.currentMood === 'happy') return '没有开心的单词，去玩耍喂一喂吧';
+      return '没有符合条件的卡牌';
+    },
     filteredCards() {
-      if (this.currentFilter === 'all') return this.cards;
+      let list = this.cards;
+      // 1) 状态筛选
       if (this.currentFilter === 'feed') {
-        return this.cards.filter((c) => c.status === 'incubating' || c.status === 'hungry');
+        list = list.filter((c) => c.status === 'incubating' || c.status === 'hungry');
+      } else if (this.currentFilter === 'egg') {
+        list = list.filter((c) => c.isEgg);
+      } else if (this.currentFilter !== 'all') {
+        list = list.filter((c) => c.status === this.currentFilter);
       }
-      return this.cards.filter((c) => { if (this.currentFilter === 'egg') return c.isEgg; return c.status === this.currentFilter; });
+      // 2) 心情筛选（与状态正交，可叠加）
+      if (this.currentMood !== 'all') {
+        list = list.filter((c) => c.mood === this.currentMood);
+      }
+      return list;
     },
   },
   async onShow() {
@@ -102,6 +137,10 @@ export default {
     this.loadData().finally(() => uni.stopPullDownRefresh());
   },
   methods: {
+    clearFilters() {
+      this.currentFilter = 'all';
+      this.currentMood = 'all';
+    },
     async loadData() {
       this.loading = true;
       try {
@@ -252,9 +291,45 @@ export default {
   font-weight: bold;
 }
 
+/* 心情筛选栏：与状态筛选是正交维度，用不同的强调色区分 */
+.mood-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 24rpx 16rpx;
+  gap: 16rpx;
+}
+
+.mood-item {
+  font-size: 24rpx;
+  color: #999;
+  padding: 6rpx 18rpx;
+  border-radius: 22rpx;
+  background: #fff;
+  border: 1rpx solid #ececec;
+}
+
+.mood-item.active {
+  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.14);
+  border-color: rgba(230, 162, 60, 0.45);
+  font-weight: bold;
+}
+
+.mood-clear {
+  font-size: 22rpx;
+  color: #4a90e2;
+  margin-left: auto;
+  padding: 6rpx 8rpx;
+}
+
 .empty {
   text-align: center;
   padding: 120rpx 24rpx;
+}
+
+.empty .primary-btn {
+  margin-top: 24rpx;
 }
 
 .loading-icon {
