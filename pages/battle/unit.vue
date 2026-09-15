@@ -5,16 +5,13 @@
       <text class="role-badge" :class="roleCls">{{ roleText }}</text>
     </view>
 
-    <!-- 屏障：显示保护层数（每层=能承受一次攻击；0层=一击必杀） -->
-    <view class="barrier" :class="{ off: !u.shield }">
-      <template v-if="u.shield > 0">
-        <text class="barrier-label">🛡️ 屏障</text>
-        <view class="barrier-pips">
-          <view v-for="n in u.shield" :key="n" class="pip" />
-        </view>
-        <text class="barrier-num">×{{ u.shield }}</text>
-      </template>
-      <text v-else class="barrier-none">⚠️ 无屏障·一击必杀</text>
+    <!-- 屏障：只在真正有屏障时显示（开局全是0层，不必每个词都挂个空屏障） -->
+    <view v-if="u.shield > 0" class="barrier">
+      <text class="barrier-label">🛡️ 屏障</text>
+      <view class="barrier-pips">
+        <view v-for="n in u.shield" :key="n" class="pip" />
+      </view>
+      <text class="barrier-num">×{{ u.shield }}</text>
     </view>
 
     <view class="foot">
@@ -59,14 +56,12 @@ export default {
 .role-badge{ font-size:16rpx; color:#fff; padding:1rpx 8rpx; border-radius:8rpx;}
 .role-badge.noun{ background:#42a5f5;} .role-badge.adjective{background:#66bb6a;} .role-badge.verb{background:#ef5350;} .role-badge.adverb{background:#ab47bc;}
 
-/* 屏障（取代血条） */
+/* 屏障（取代血条）— 仅在 u.shield > 0 时渲染 */
 .barrier{ margin:6rpx 0 4rpx; padding:5rpx 6rpx; border-radius:10rpx; background:#152a47; min-height:46rpx; display:flex; align-items:center; justify-content:center; gap:5rpx; }
-.barrier.off{ background:transparent; }
 .barrier-label{ font-size:16rpx; color:#9fbcff; flex-shrink:0; }
 .barrier-pips{ display:flex; gap:3rpx; flex-wrap:wrap; justify-content:center; }
 .pip{ width:8rpx; height:16rpx; border-radius:3rpx; background:linear-gradient(180deg,#9fc4ff,#4a7fe0); box-shadow:0 0 6rpx rgba(120,170,255,.9); }
 .barrier-num{ font-size:18rpx; color:#cfe0ff; font-weight:bold; flex-shrink:0; }
-.barrier-none{ font-size:16rpx; color:#ff8a80; }
 
 .foot{ display:flex; align-items:center; justify-content:center; gap:5rpx; flex-wrap:wrap; }
 .lvl{ font-size:18rpx; color:#7a93b5; }
