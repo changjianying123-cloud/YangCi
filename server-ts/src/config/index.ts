@@ -40,8 +40,6 @@ export const config = {
     ],
     // 饥饿窗口期：到点后2小时内必须喂养，否则饥饿
     hungerWindowMs: 2 * 60 * 60 * 1000,
-    // 饥饿后降级等待时间：1小时不喂就降级
-    downgradeThresholdMs: 1 * 60 * 60 * 1000,
     // 最大等级
     maxLevel: 8,
     // 每个喂养窗口需拼写正确3次

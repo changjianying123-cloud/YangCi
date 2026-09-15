@@ -18,13 +18,12 @@ export async function getUserStats(userId: number) {
     `
     SELECT
       SUM(CASE WHEN is_egg = 0 AND feed_deadline <= ? AND ? < feed_window_end THEN 1 ELSE 0 END) AS hungry_count,
-      SUM(CASE WHEN hunger_start_at IS NOT NULL AND ? >= hunger_start_at + ? THEN 1 ELSE 0 END) AS downgraded_count,
       SUM(CASE WHEN is_egg = 1 THEN 1 ELSE 0 END) AS egg_count,
       SUM(CASE WHEN is_egg = 0 AND feed_deadline > ? THEN 1 ELSE 0 END) AS healthy_count
     FROM user_cards
     WHERE user_id = ? AND (abandoned IS NULL OR abandoned = 0)
     `,
-    [now, now, now, config.card.downgradeThresholdMs, now, userId]
+    [now, now, now, userId]
   );
 
   const [feedRows] = await pool.execute<RowDataPacket[]>(

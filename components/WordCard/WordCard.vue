@@ -28,7 +28,6 @@
           <text class="deadline">{{ card.nextFeedIn }}</text>
           <text v-if="card.status === 'incubating'" class="feed-tip">🍼 可喂养</text>
           <text v-else-if="card.status === 'hungry'" class="feed-tip urgent">⚠️ 饥饿</text>
-          <text v-else-if="card.status === 'downgraded'" class="feed-tip">⬇️ 已降级</text>
           <text v-else-if="card.status === 'normal'" class="feed-tip normal">✅ 健康</text>
         </view>
       </view>
@@ -43,7 +42,6 @@ const CARD_STYLES = {
   egg: '#e0e0e0',
   incubating: 'linear-gradient(135deg, #ff9800 0%, #ffc107 100%)',
   hungry: 'linear-gradient(135deg, #f44336 0%, #ff7043 100%)',
-  downgraded: 'linear-gradient(135deg, #9c27b0 0%, #ce93d8 100%)',
   normal: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)',
 };
 

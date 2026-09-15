@@ -50,7 +50,7 @@ export function getFeedCoinReward(level: number): number {
  * 判断饥饿状态下是否需要先消耗金币恢复
  */
 export function isHungryNeedCoins(status: CardStatus): boolean {
-  return status === 'hungry' || status === 'downgraded';
+  return status === 'hungry';
 }
 
 /**
@@ -78,14 +78,9 @@ export function computeCardStatus(
 
   if (now >= feedDeadline && now < feedWindowEnd) return 'incubating';
 
-  if (now >= feedWindowEnd) {
-    if (hungerStartAt && now >= hungerStartAt + config.card.downgradeThresholdMs) {
-      return 'downgraded';
-    }
-    return 'hungry';
-  }
-
-  return 'normal';
+  // 过窗口以后就是「饥饿」，一直持续到满 eggThresholdMs 变成单词蛋。
+  // （曾经饥饿满 1h 会返回 'downgraded'，降级逻辑已移除）
+  return 'hungry';
 }
 
 /**
@@ -173,22 +168,6 @@ export function nextFeedSchedule(level: number, lv1FeedCount: number = 0, now = 
   const feedDeadline = now + intervalMs;
   const feedWindowEnd = feedDeadline + config.card.hungerWindowMs;
 
-  return { level: newLevel, feedDeadline, feedWindowEnd };
-}
-
-/**
- * 降级后计算新计划
- */
-export function downgradeSchedule(currentLevel: number, now = Date.now()): {
-  level: number;
-  feedDeadline: number;
-  feedWindowEnd: number;
-} {
-  const newLevel = Math.max(currentLevel - 1, 1);
-  const idx = Math.min(newLevel, config.card.feedIntervals.length) - 1;
-  const intervalMs = config.card.feedIntervals[Math.max(idx, 0)];
-  const feedDeadline = now;
-  const feedWindowEnd = feedDeadline + config.card.hungerWindowMs;
   return { level: newLevel, feedDeadline, feedWindowEnd };
 }
 

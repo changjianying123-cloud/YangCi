@@ -1,6 +1,6 @@
 import { RowDataPacket } from 'mysql2/promise';
 
-export type CardStatus = 'incubating' | 'ready' | 'hungry' | 'downgraded' | 'normal';
+export type CardStatus = 'incubating' | 'ready' | 'hungry' | 'normal';
 export type MoodType = 'happy' | 'sad' | 'none';
 
 export interface UserRow extends RowDataPacket {

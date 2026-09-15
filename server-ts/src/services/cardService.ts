@@ -7,7 +7,6 @@ import {
   computeCardStatus,
   canFeedNow,
   nextFeedSchedule,
-  downgradeSchedule,
   getWindowInfo,
   getRemedialInfo,
   getLv1Info,
@@ -82,8 +81,9 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
     hasRemedialWindow: remedialInfo.canFeedRemedial,
     // 金币系统
     coins: userCoins,
-    isHungry: status === 'hungry' || status === 'downgraded',
-    canRecoverFromHunger: !canFeed && (status === 'hungry' || status === 'downgraded') && canAffordRecover(userCoins),    feedCoinReward: canFeed ? getFeedCoinReward(row.level) : 0,
+    isHungry: status === 'hungry',
+    canRecoverFromHunger: !canFeed && status === 'hungry' && canAffordRecover(userCoins),
+    feedCoinReward: canFeed ? getFeedCoinReward(row.level) : 0,
   };
 }
 
@@ -120,8 +120,11 @@ async function processHungerDowngrade(rows: UserCardRow[], now: number) {
         continue;
       }
 
-      // 🥚 进入饥饿状态超过阈值（2天）→ 退化成单词蛋（需重新孵化）
-      // 优先级高于降级：蛋是终态，不再走 level-1
+      // 饥饿超过阈值（2天）→ 退化成单词蛋（需重新孵化）
+      // 注：曾经这里还有一层「降级」逻辑（饥饿1h → level-1 + 立即开新喂养窗口），
+      // 已移除：降级会把 hunger_start_at 清掉并马上给新窗口，导致「饥饿」状态
+      // 一闪而过（用户打开 App 就消失），既让「饥饿不能玩耍」形同虚设，
+      // 又和「2天变蛋」职责重叠。现在饥饿 → 持续可见 → 满 2 天变蛋。
       if (now >= row.hunger_start_at + config.card.eggThresholdMs) {
         await pool.execute(
           `UPDATE user_cards
@@ -142,26 +145,6 @@ async function processHungerDowngrade(rows: UserCardRow[], now: number) {
         row.mood_score = 0;
         continue;
       }
-
-      // 饥饿超过降级阈值 → 降级
-      if (now >= row.hunger_start_at + config.card.downgradeThresholdMs) {
-        const sd = downgradeSchedule(row.level, now);
-        await pool.execute(
-          `UPDATE user_cards
-           SET level = ?, feed_deadline = ?, feed_window_end = ?,
-               hunger_start_at = NULL, downgrade_count = downgrade_count + 1,
-               feed_spell_count = 0, had_wrong_attempt = 0, remedial_feed_at = NULL
-           WHERE id = ?`,
-          [sd.level, sd.feedDeadline, sd.feedWindowEnd, row.id]
-        );
-        row.level = sd.level;
-        row.feed_deadline = sd.feedDeadline;
-        row.feed_window_end = sd.feedWindowEnd;
-        row.hunger_start_at = null;
-        row.feed_spell_count = 0;
-        row.had_wrong_attempt = 0;
-        row.remedial_feed_at = null;
-      }
     }
   }
 }
@@ -176,14 +159,13 @@ export async function listUserCards(userId: number): Promise<CardDTO[]> {
      WHERE uc.user_id = ? AND (uc.abandoned IS NULL OR uc.abandoned = 0)
      ORDER BY
        CASE
-         WHEN uc.is_egg = 1 THEN 4
+         WHEN uc.is_egg = 1 THEN 3
          WHEN uc.feed_deadline <= ? AND ? < uc.feed_window_end THEN 0
-         WHEN uc.hunger_start_at IS NOT NULL AND ? >= uc.hunger_start_at + ? THEN 3
          WHEN uc.hunger_start_at IS NOT NULL THEN 1
          ELSE 2
        END,
        uc.feed_deadline ASC`,
-    [userId, now, now, now, config.card.downgradeThresholdMs]
+    [userId, now, now]
   );
   await processHungerDowngrade(rows, now);
   const userCoins = await getUserCoins(userId);

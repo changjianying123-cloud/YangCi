@@ -33,7 +33,6 @@ export function cardStatusText(status) {
   const map = {
     incubating: '可喂养',
     hungry: '饥饿',
-    downgraded: '降级',
     egg: '单词蛋',
     normal: '健康',
   };
@@ -44,7 +43,6 @@ export function cardStatusColor(status) {
   const map = {
     incubating: '#FF9800',
     hungry: '#F44336',
-    downgraded: '#9C27B0',
     egg: '#9E9E9E',
     normal: '#4CAF50',
   };
