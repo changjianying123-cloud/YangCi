@@ -142,12 +142,12 @@ export async function createBattle(playerUserId: number): Promise<{ battleId: nu
   const playerPool = await fetchBattlePool(playerUserId);
   const aiPool = await fetchAiPool();
   const player = formSide(playerPool);
-  // 一击必杀制：双方全部单位开局各 1 层屏障，把“先手一击”降级为“先手破盾”，削弱先手碾压
-  for (const u of player.units) if (!u.dead) u.shield = Math.max(u.shield || 0, 1);
-  // 一击必杀制下后手的 AI 吃亏：给 AI 每个单位 1 层开局屏障作为先手补偿
+  // 开局不给屏障：屏障应该是靠「拼对名词/形容词」赚来的，而不是系统白送。
+  // 先手碾压由布阵时的 50/50 先手投币来平衡（见 deployBattle）。
   const enemy = formSide(aiPool);
   for (const u of enemy.units) {
-    if (!u.dead) u.shield = Math.max(u.shield || 0, 1);
+    if (!u.dead) u.shield = 0;
+    // AI 降 1 级，避免新手场难度过高
     const lv = Math.max(1, (u.level || 1) - 1);
     u.level = lv;
     u.maxHp = BL.maxHpFor(lv, u.role);
