@@ -65,9 +65,10 @@
       <view class="success-box">
         <text class="success-icon">🎉</text>
         <text class="success-text">一组收服完成！</text>
-        <text class="summary-text">成功收服 {{ reviewPool.length }} 个单词</text>
-        <text class="coin-reward">+{{ reviewPool.length * 5 }}{{ reviewPool.length === 10 ? ' + 20 额外💰' : ' 💰' }}</text>
-        <text v-if="reviewPool.length === 10" class="bonus-text">连续收集 10 个单词奖励 20 金币！</text>
+        <text class="summary-text">成功收服 {{ caughtCount }} 个单词</text>
+        <text class="coin-reward">+{{ totalCoinReward }} 💰</text>
+        <text v-if="bonus > 0" class="bonus-text">连续收集 10 个单词，额外奖励 {{ bonus }} 金币！</text>
+        <text v-else-if="caughtCount > 0 && totalCoinReward === 0" class="bonus-text">这些单词之前已收服过，本次不重复发放金币</text>
         <button class="primary-btn" @click="goHome">查看图鉴</button>
         <button class="ghost-btn" @click="resetAll">继续收服</button>
       </view>
@@ -91,6 +92,9 @@ export default {
       // 当前在拼写的单词
       currentWord: {},
       currentCorrectCount: 0,
+      totalCoinReward: 0,
+      bonus: 0,
+      caughtCount: 0,
       // 待收服池（拼满 6 次、尚未真正入库的单词，本地缓存跨会话保留）
       reviewPool: [],
       // 当前正在检测的回顾词
@@ -314,6 +318,11 @@ export default {
         const res = await batchCatchWords(wordIds);
         if (res.data) {
           const { results = [], totalCoinReward = 0, bonus = 0 } = res.data;
+          // 用后端返回的真实数值展示奖励（客户端不能再拿 reviewPool 估算：
+          // 下面清空 reviewPool 后就变成 0 了，且已收服/重新激活的词本就不发币）
+          this.totalCoinReward = totalCoinReward;
+          this.bonus = bonus;
+          this.caughtCount = results.filter((r) => r && !r.error).length;
           // 收集结算失败的词（保留在待收服池，下次继续）
           const failedIds = new Set(
             results
@@ -352,6 +361,9 @@ export default {
       this.showComplete = false;
       this.currentWord = {};
       this.currentCorrectCount = 0;
+      this.totalCoinReward = 0;
+      this.bonus = 0;
+      this.caughtCount = 0;
       this.reviewPool = [];
       this.reviewWord = {};
       this.reviewIndex = 0;

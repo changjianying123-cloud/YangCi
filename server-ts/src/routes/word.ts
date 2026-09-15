@@ -37,11 +37,13 @@ router.post('/batch-catch', authMiddleware, async (req: Request, res: Response) 
   }
   try {
     let totalCoinReward = 0;
+    let newlyCaught = 0; // 真正新收服的个数（已收服/重复的不计）
     const results = [];
     for (const wordId of word_ids) {
       try {
         const result = await catchWord(req.userId!, wordId, 6);
         totalCoinReward += result.coinReward;
+        if (result.coinReward > 0) newlyCaught += 1;
         results.push(result);
       } catch (e) {
         // 单个词失败不拖垮整批（如单词不存在等），记录并继续
@@ -49,12 +51,14 @@ router.post('/batch-catch', authMiddleware, async (req: Request, res: Response) 
       }
     }
     // 满 10 个额外奖励 20 金币
-    const bonus = word_ids.length >= 10 ? 20 : 0;
+    // ⚠️ 按「本次真正新收服」的个数判定，而不是提交的 word_ids 长度，
+    //    否则重复收服已有单词也会白拿奖励
+    const bonus = newlyCaught >= 10 ? 20 : 0;
     if (bonus > 0) {
       await pool.execute('UPDATE users SET coins = coins + ? WHERE id = ?', [bonus, req.userId!]);
       totalCoinReward += bonus;
     }
-    ok(res, { results, totalCoinReward, bonus });
+    ok(res, { results, totalCoinReward, bonus, newlyCaught });
   } catch (err: unknown) {
     fail(res, 409, err instanceof Error ? err.message : '批量收服失败');
   }
