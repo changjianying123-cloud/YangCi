@@ -36,18 +36,18 @@
               <text>💎 拼写正确可得 {{ card.feedCoinReward }} 💰</text>
             </view>
             <view v-else-if="card.challengeHadWrong" class="coin-reward-hint penalty">
-              <text>⚠️ 之前拼写错误扣了金币，需要再拼 {{ spellRequired - spellCount }} 次</text>
+              <text>⚠️ 之前拼写错误扣了金币，需要重新拼对 {{ spellRequired - spellCount }} 次</text>
             </view>
             <view v-else-if="card.isHungry" class="coin-reward-hint no-reward">
               <text>⚠️ 饥饿状态喂养无金币奖励</text>
             </view>
 
-            <!-- 拼写进度 -->
+            <!-- 拼写进度：倒着数 3 → 2 → 1 -->
             <view v-if="card.challengeHadWrong" class="challenge-progress">
-              <text>补考拼写：{{ spellCount }} / {{ spellRequired }}</text>
+              <text>补考拼写：还需拼对 {{ spellRequired - spellCount }} 次（{{ spellCount }} / {{ spellRequired }}）</text>
             </view>
             <view v-else class="challenge-progress">
-              <text>拼写正确 {{ spellCount }} 次后可确认喂养</text>
+              <text>还需拼对 {{ spellRequired - spellCount }} 次可确认喂养（{{ spellCount }} / {{ spellRequired }}）</text>
             </view>
 
             <SpellInput
@@ -233,7 +233,8 @@ export default {
             setTimeout(() => uni.navigateBack(), 1200);
           } else {
             const coinMsg = res.data.coinReward > 0 ? ` +${res.data.coinReward}💰` : '';
-            uni.showToast({ title: `拼写正确！(${res.data.count}/${res.data.required})${coinMsg}`, icon: 'none' });
+            const left = res.data.remaining != null ? res.data.remaining : (res.data.required - res.data.count);
+            uni.showToast({ title: `拼写正确！还需 ${left} 次${coinMsg}`, icon: 'none' });
             await this.loadCard();
           }
         }

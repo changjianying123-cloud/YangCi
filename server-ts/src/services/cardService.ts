@@ -60,8 +60,10 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
     isEgg,
     status,
     canFeed,
-    feedSpellCount: row.feed_spell_count || 0,
-    feedSpellRequired: config.card.feedSpellCount,
+    feedSpellCount: Math.max(0, Math.min(row.feed_spell_count || 0, config.card.feedSpellCount || 3)),
+    feedSpellRequired: config.card.feedSpellCount || 3,
+    // 还剩几次拼写（倒着数：3 → 2 → 1）
+    feedSpellRemaining: Math.max(0, (config.card.feedSpellCount || 3) - (row.feed_spell_count || 0)),
     nextFeedIn: remedialInfo.hasRemedial ? remedialInfo.humanReadable : windowInfo.humanReadable,
     mood,
     hasRemedial: remedialInfo.hasRemedial && !remedialInfo.canFeedRemedial,
@@ -173,10 +175,12 @@ export async function getCardDetail(userId: number, cardId: number): Promise<Car
 
 /**
  * 获取升级所需喂养次数
+ * 注：已废弃——次数统一用 config.card.feedSpellCount（3），
+ * 健康喂养与拼错补考一致，避免 required 中途跳变。保留仅作历史参考。
  */
-function getRequiredFeedsForLevel(level: number): number {
-  // 如果之前拼写错了，需要 3 次；否则默认 3 次
-  return 3;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function getRequiredFeedsForLevel(_level: number): number {
+  return config.card.feedSpellCount || 3;
 }
 
 export async function feedCard(userId: number, cardId: number, spellCorrect: boolean, recoverHunger: boolean = false) {
@@ -207,6 +211,12 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
   // 判断当前状态：是否饥饿（需要扣钱恢复）
   const isHungryStatus = row.hunger_start_at !== null;
   const feedingInHunger = isHungryStatus && (recoverHunger || !inNormalWindow && !inRemedialWindow);
+
+  // 本轮喂养的拼写次数要求：健康喂养与「拼错后补考」统一，都是 3 次，
+  // 避免中途 required 跳变导致前端进度出现 1→2→3 这种反过来的显示
+  const requiredFeeds = Math.max(1, config.card.feedSpellCount || 3);
+  // 已拼对次数（拼错会归零，所以这里就是本轮进度）
+  const alreadyCorrect = Math.max(0, Math.min(row.feed_spell_count || 0, requiredFeeds));
 
   // 饥饿状态下，必须花费金币恢复才能喂养
   if (isHungryStatus && !inNormalWindow && !inRemedialWindow) {
@@ -257,7 +267,7 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       );
     }
 
-    // 重置喂养拼写计数，改为需要拼写 3 次才能喂养成功
+    // 重置本轮拼写进度（feed_spell_count 归零），并标记本轮出现过拼写错误
     await pool.execute(
       'UPDATE user_cards SET feed_spell_count = 0, had_wrong_attempt = 1 WHERE id = ?',
       [cardId]
@@ -268,21 +278,20 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       mood: 'sad' as MoodType,
       moodEmoji: '😢',
       count: 0,
-      required: 3,
+      required: requiredFeeds,
+      remaining: requiredFeeds,
       level: row.level,
       hadWrong: true,
       coinPenalty: penaltyCoin,
       message: penaltyCoin > 0
-        ? `拼写错误，扣除 ${penaltyCoin} 💰，需要重新拼写 3 次才能喂养成功 😢`
-        : '拼写错误，需要重新拼写 3 次才能喂养成功 😢',
+        ? `拼写错误，扣除 ${penaltyCoin} 💰，需要重新拼写 ${requiredFeeds} 次才能喂养成功 😢`
+        : `拼写错误，需要重新拼写 ${requiredFeeds} 次才能喂养成功 😢`,
     };
   }
 
   // ── 拼写正确 ──
-  const currentCount = (row.feed_spell_count || 0) + 1;
+  const currentCount = alreadyCorrect + 1;
   const hadWrong = row.had_wrong_attempt === 1;
-  // 如果之前拼写错过，需要 3 次才完成；否则按等级所需次数
-  const requiredFeeds = hadWrong ? 3 : getRequiredFeedsForLevel(row.level);
 
   // 本轮是否有补救窗口，且本次喂养是否在补救窗口中
   const feedingInRemedialWindow = inRemedialWindow && row.remedial_feed_at !== null;
@@ -336,6 +345,7 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       moodEmoji,
       count: currentCount,
       required: requiredFeeds,
+      remaining: 0,
       level: sd.level,
       feedDeadline: sd.feedDeadline,
       feedWindowEnd: sd.feedWindowEnd,
@@ -357,20 +367,17 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
 
     return result;
   } else {
-    // Lv.1 还需要再喂一次
-    let remedialFeedAt: number | null = null;
-    if (hadWrong && !feedingInRemedialWindow) {
-      remedialFeedAt = now + config.card.remedialFeedDelayMs;
-    }
-
+    // 本轮还没拼够次数：只推进 feed_spell_count。
+    // ⚠️ 这里不能清 had_wrong_attempt / remedial_feed_at（那是整轮完成时才清的），
+    //    否则第二次进函数时 required 会跳变，前端进度就会变成 1→2→3
     await pool.execute(
       `UPDATE user_cards
-       SET feed_spell_count = ?, had_wrong_attempt = 0, remedial_feed_at = ?
+       SET feed_spell_count = ?
        WHERE id = ?`,
-      [currentCount, remedialFeedAt, cardId]
+      [currentCount, cardId]
     );
 
-    const remaining = requiredFeeds - currentCount;
+    const remaining = Math.max(0, requiredFeeds - currentCount);
     return {
       done: false,
       spellCorrect: true,
@@ -378,12 +385,11 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
       moodEmoji: '😊',
       count: currentCount,
       required: requiredFeeds,
+      remaining,
       level: row.level,
       coinReward,
-      isLv1Second: true,
       hadWrong,
-      hasRemedial: hadWrong,
-      message: `拼写正确！😊 还需 ${remaining} 次喂养才升级` + (coinReward > 0 ? ` 获得 ${coinReward} 🪙` : ''),
+      message: `拼写正确！还�?${remaining} 次` + (coinReward > 0 ? ` 获得 ${coinReward} 🪙` : ''),
     };
   }
 }

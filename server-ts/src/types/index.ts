@@ -80,6 +80,8 @@ export interface CardDTO {
   canFeed: boolean;
   feedSpellCount: number;
   feedSpellRequired: number;
+  /** 还需拼写正确多少次（倒着数 3→2→1） */
+  feedSpellRemaining: number;
   nextFeedIn: string;
   mood: MoodType;
   hasRemedial: boolean;
