@@ -117,6 +117,29 @@ async function processHungerDowngrade(rows: UserCardRow[], now: number) {
         continue;
       }
 
+      // 🥚 进入饥饿状态超过阈值（2天）→ 退化成单词蛋（需重新孵化）
+      // 优先级高于降级：蛋是终态，不再走 level-1
+      if (now >= row.hunger_start_at + config.card.eggThresholdMs) {
+        await pool.execute(
+          `UPDATE user_cards
+           SET is_egg = 1, level = 0, feed_deadline = 0, feed_window_end = 0,
+               hunger_start_at = NULL, feed_spell_count = 0,
+               had_wrong_attempt = 0, remedial_feed_at = NULL, mood_score = 0
+           WHERE id = ?`,
+          [row.id]
+        );
+        row.is_egg = 1;
+        row.level = 0;
+        row.feed_deadline = 0;
+        row.feed_window_end = 0;
+        row.hunger_start_at = null;
+        row.feed_spell_count = 0;
+        row.had_wrong_attempt = 0;
+        row.remedial_feed_at = null;
+        row.mood_score = 0;
+        continue;
+      }
+
       // 饥饿超过降级阈值 → 降级
       if (now >= row.hunger_start_at + config.card.downgradeThresholdMs) {
         const sd = downgradeSchedule(row.level, now);

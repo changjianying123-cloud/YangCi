@@ -48,8 +48,9 @@ export const config = {
     feedSpellCount: 3,
     // Lv.1 需要喂养2次才能升到Lv.2
     maxLv1FeedCount: 2,
-    // 变成单词蛋的阈值（超时30天）
-    eggThresholdMs: 30 * 24 * 60 * 60 * 1000,
+    // 变成单词蛋的阈值（进入饥饿状态超过 2 天）
+    // ⚠️ 这是「distance since hunger_start_at」，不是 distance since last_feed_at
+    eggThresholdMs: 2 * 24 * 60 * 60 * 1000,
     // 收服所需正确次数
     catchRequiredCorrect: 6,
     // 喂养窗口长度
