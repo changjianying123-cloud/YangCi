@@ -477,7 +477,64 @@ export async function abandonCard(userId: number, cardId: number): Promise<void>
   );
 }
 
-// ===== 玩耍（英文选中文四选一）=====
+// ===== 玩耍两种玩法：pick(选词四选一) / translate(看英文打中文) =====
+
+/** 玩法类型 */
+export type PlayMode = 'pick' | 'translate';
+
+/**
+ * 把清洗后的释义拆成可接受的答案集合。
+ * 例：「装饰，装点」→ ['装饰','装点']；「（押韵的）儿歌」→ ['儿歌']
+ * 英文释义里带括号补充/词性残留的，去括号后也当候选。
+ */
+export function acceptedAnswers(meaning: unknown): string[] {
+  const cleaned = cleanMeaning(meaning, 12);
+  if (!cleaned) return [];
+  const out = new Set<string>();
+  const push = (s: string) => {
+    const t = s.trim();
+    if (t) out.add(t);
+  };
+  push(cleaned);
+  // 按中文/英文逗号、顿号、分号拆义项
+  for (const part of cleaned.split(/[，,、；;]/)) {
+    push(part);
+    // 去掉「（补充说明）」后剩下的主干也算一个答案
+    const noParen = part.replace(/[（(][^）)]*[）)]/g, '').trim();
+    push(noParen);
+  }
+  return [...out].filter(Boolean);
+}
+
+/** 用户输入归一化：去空白、去标点、全角转半角常见项、小写 */
+export function normalizeAnswer(s: unknown): string {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s]+/g, '')
+    // 去掉常见中英文标点与括号
+    .replace(/[，,。.、；;：:！!？?“”"'‘’（）()《》<>【】\[\]~·-]/g, '');
+}
+
+/**
+ * 英译汉判分：只要用户输入命中任意一个义项就算对。
+ * - 完全相等
+ * - 或用户输入包含某个义项（允许“装饰用的”这类多打了字）
+ * - 或某个义项包含用户输入（用户只记得半截，如「很」对「很大的」）—— 该条需输入>=2字防止蒙对
+ */
+export function judgeTranslation(input: unknown, meaning: unknown): boolean {
+  const got = normalizeAnswer(input);
+  if (!got) return false;
+  for (const ans of acceptedAnswers(meaning)) {
+    const want = normalizeAnswer(ans);
+    if (!want) continue;
+    if (got === want) return true;
+    if (got.length >= 2 && got.includes(want)) return true;
+    if (want.length >= 2 && got.length >= 2 && want.includes(got)) return true;
+  }
+  return false;
+}
 
 /** 根据 mood_score 算心情档位 */
 function moodOf(score: number): MoodType {
@@ -521,17 +578,38 @@ export async function pickRandomPlayableCard(userId: number, excludeCardId?: num
 }
 
 /**
- * 出题：当前单词的英文 + 4 个中文选项（1 正确 + 3 干扰）。
- * 干扰项优先从「同本书」抽，不够再全库抽。
+ * 出题：
+ *  - mode='pick'      → 返回 4 个中文选项（1 正确 + 3 干扰，同书优先）
+ *  - mode='translate' → 只需英文单词，用户手打中文
  */
-export async function getPlayQuestion(userId: number, cardId: number) {
+export async function getPlayQuestion(userId: number, cardId: number, mode: PlayMode = 'pick') {
   const card = await loadOwnedCard(userId, cardId);
   if (!card) throw new Error('卡牌不存在或已被遗弃');
 
-  const need = Math.max(1, config.play.optionCount - 1);
   const clean = (s: unknown) => cleanMeaning(s, 12);
   const correctText = clean(card.meaning);
   if (!correctText) throw new Error('该单词释义为空，无法出题');
+
+  const score = card.mood_score || 0;
+  const base = {
+    cardId: card.id,
+    wordId: card.word_id,
+    word: card.word || '',
+    phonetic: card.phonetic || null,
+    audioUrl: buildAudioUrl(card.word || '', card.audio_url),
+    mode,
+    moodScore: score,
+    mood: moodOf(score),
+    playCount: card.play_count || 0,
+    playCorrectCount: card.play_correct_count || 0,
+  };
+
+  // 英译汉：不打选项，答案由后端判分（前端不泄露答案）
+  if (mode === 'translate') {
+    return { ...base, options: [] };
+  }
+
+  const need = Math.max(1, config.play.optionCount - 1);
 
   // 干扰项：多抽一些，清洗后去重（避免「跑，奔跑」和「奔跑」同时出现）
   const rawPool: string[] = [];
@@ -570,32 +648,24 @@ export async function getPlayQuestion(userId: number, cardId: number) {
     ...distractors.slice(0, need).map((text) => ({ text, correct: false })),
   ].sort(() => Math.random() - 0.5);
 
-  const score = card.mood_score || 0;
-  return {
-    cardId: card.id,
-    wordId: card.word_id,
-    word: card.word || '',
-    phonetic: card.phonetic || null,
-    audioUrl: buildAudioUrl(card.word || '', card.audio_url),
-    options,
-    moodScore: score,
-    mood: moodOf(score),
-    playCount: card.play_count || 0,
-    playCorrectCount: card.play_correct_count || 0,
-  };
+  return { ...base, options };
 }
 
 /**
  * 提交玩耍答案：答对 → mood_score +1（提升心情）；答错 → -1（降低心情）。
  * 答对额外奖励少量金币。
+ *  - mode='pick'      ：answer 是选中的中文选项（严格相等）
+ *  - mode='translate' ：answer 是手打的中文，命中任意一个义项即算对（容错判分）
  */
-export async function playCard(userId: number, cardId: number, answer: string) {
+export async function playCard(userId: number, cardId: number, answer: string, mode: PlayMode = 'pick') {
   const card = await loadOwnedCard(userId, cardId);
   if (!card) throw new Error('卡牌不存在或已被遗弃');
   if (!answer || typeof answer !== 'string') throw new Error('缺少答案');
 
-  const correct = answer.trim() === cleanMeaning(card.meaning, 12).trim();
   const displayMeaning = cleanMeaning(card.meaning, 12);
+  const correct = mode === 'translate'
+    ? judgeTranslation(answer, card.meaning)
+    : answer.trim() === displayMeaning.trim();
   const delta = correct ? config.play.correctDelta : config.play.wrongDelta;
   const before = card.mood_score || 0;
   const after = Math.max(config.play.scoreMin, Math.min(config.play.scoreMax, before + delta));
@@ -619,6 +689,8 @@ export async function playCard(userId: number, cardId: number, answer: string) {
   return {
     correct,
     correctMeaning: displayMeaning,
+    acceptedAnswers: acceptedAnswers(card.meaning),
+    mode,
     moodScore: after,
     mood: moodOf(after),
     moodChanged: moodOf(before) !== moodOf(after),

@@ -14,34 +14,63 @@
         <text class="mood-score">{{ moodScoreText }}</text>
       </view>
 
-      <!-- 题目：看英文选中文 -->
+      <!-- 题目：看英文选中文 / 看英文打中文 -->
       <view class="word-panel">
-        <text class="challenge-label">🎈 玩耍 · 选词复习</text>
+        <text class="challenge-label">{{ isTranslate ? '✍️ 玩耍 · 英译汉' : '📝 玩耍 · 选词四选一' }}</text>
         <text class="ask-word">{{ question.word }}</text>
         <text v-if="question.phonetic" class="ask-phonetic">{{ question.phonetic }}</text>
         <AudioPlayer :src="question.audioUrl" label="听发音" />
-        <text class="ask-hint">选出正确的中文意思</text>
 
-        <!-- 四个选项 -->
-        <view class="options">
-          <view
-            v-for="(opt, idx) in question.options"
-            :key="idx"
-            class="option"
-            :class="optionClass(opt)"
-            @click="choose(opt)"
-          >
-            <text class="option-key">{{ ['A', 'B', 'C', 'D'][idx] }}</text>
-            <text class="option-text">{{ opt.text }}</text>
-            <text v-if="picked && opt.correct" class="option-mark">✅</text>
-            <text v-else-if="picked === opt.text" class="option-mark">❌</text>
+        <!-- ===== 玩法 1：选词四选一 ===== -->
+        <block v-if="!isTranslate">
+          <text class="ask-hint">选出正确的中文意思</text>
+          <view class="options">
+            <view
+              v-for="(opt, idx) in question.options"
+              :key="idx"
+              class="option"
+              :class="optionClass(opt)"
+              @click="choose(opt)"
+            >
+              <text class="option-key">{{ ['A', 'B', 'C', 'D'][idx] }}</text>
+              <text class="option-text">{{ opt.text }}</text>
+              <text v-if="picked && opt.correct" class="option-mark">✅</text>
+              <text v-else-if="picked === opt.text" class="option-mark">❌</text>
+            </view>
           </view>
-        </view>
+        </block>
+
+        <!-- ===== 玩法 2：英译汉（手打中文） ===== -->
+        <block v-else>
+          <text class="ask-hint">写出它的中文意思（任意一个义项即可）</text>
+          <view class="trans-input-wrap" :class="{ ok: picked && lastCorrect, err: picked && !lastCorrect }">
+            <input
+              class="trans-input"
+              v-model="typed"
+              :disabled="!!picked"
+              :focus="inputFocus"
+              placeholder="输入中文意思…"
+              confirm-type="done"
+              @confirm="submitTyped"
+            />
+          </view>
+          <button
+            v-if="!picked"
+            class="trans-submit"
+            :disabled="!typed.trim()"
+            @click="submitTyped"
+          >提交答案</button>
+          <view v-else class="typed-echo">
+            <text class="typed-label">你的答案：</text>
+            <text class="typed-text">{{ typed }}</text>
+          </view>
+        </block>
 
         <!-- 结果反馈 -->
         <view v-if="picked" class="feedback" :class="{ good: lastCorrect, bad: !lastCorrect }">
           <text class="feedback-title">{{ lastCorrect ? '🎉 答对了！心情 +1' : '😔 答错了，心情 -1' }}</text>
           <text class="feedback-sub" v-if="!lastCorrect">正确答案：{{ lastCorrectText }}</text>
+          <text class="feedback-sub" v-if="!lastCorrect && acceptedList.length">只要对上一个就算对：{{ acceptedList.join(' / ') }}</text>
           <text class="feedback-sub" v-if="lastCoin > 0">💰 单词开心起来了，奖励 +{{ lastCoin }} 金币</text>
         </view>
 
@@ -54,8 +83,8 @@
       <view class="tips">
         <text class="tip-line">🎈 玩耍和喂养一样，都算复习这个单词</text>
         <text class="tip-line">🔀 点「继续玩耍」会换成另一个单词</text>
+        <text class="tip-line">{{ isTranslate ? '✍️ 写出任意一个中文义项就算对' : '📝 从四个中文里选出正确的一个' }}</text>
         <text class="tip-line">😊 连续答对让它开心，它会给你金币</text>
-        <text class="tip-line">😢 答错会让它难过，记得多陪它玩</text>
       </view>
     </view>
 
@@ -74,6 +103,7 @@ export default {
   data() {
     return {
       cardId: null,
+      mode: 'pick', // pick=选词四选一 / translate=英译汉
       question: {},
       coins: 0,
       picked: null,
@@ -81,6 +111,9 @@ export default {
       lastCorrect: false,
       lastCorrectText: '',
       lastCoin: 0,
+      acceptedList: [], // 英译汉答错时列出的可接受答案
+      typed: '',        // 英译汉用户输入
+      inputFocus: true, // 输入框聚焦
       moodNow: 'none',
       moodValue: 0,
       correctStreak: 0,
@@ -89,6 +122,9 @@ export default {
     };
   },
   computed: {
+    isTranslate() {
+      return this.mode === 'translate';
+    },
     moodEmoji() {
       return moodSymbol(this.moodNow);
     },
@@ -112,8 +148,10 @@ export default {
   },
   onLoad(options) {
     this.cardId = options.cardId;
+    this.mode = options.mode === 'translate' ? 'translate' : 'pick';
     this.loadQuestion();
-  },  methods: {
+  },
+  methods: {
     optionClass(opt) {
       if (!this.picked) return '';
       if (opt.correct) return 'correct';
@@ -124,7 +162,7 @@ export default {
       if (this.loading) return;
       this.loading = true;
       try {
-        const res = await getPlayQuestion(this.cardId);
+        const res = await getPlayQuestion(this.cardId, this.mode);
         if (res.data) {
           this.question = res.data;
           this.moodNow = res.data.mood || 'none';
@@ -135,6 +173,10 @@ export default {
           this.lastCorrect = false;
           this.lastCorrectText = '';
           this.lastCoin = 0;
+          this.acceptedList = [];
+          this.typed = '';
+          // 英译汉需要弹键盘；小程序 focus 已是 true 时不会再弹 → false→true 闪一下
+          if (this.isTranslate) this.refocusInput();
         }
       } catch (e) {
         uni.showToast({ title: e.errMsg || '加载题目失败', icon: 'none' });
@@ -142,23 +184,49 @@ export default {
         this.loading = false;
       }
     },
+    // 让输入框重新聚焦（小程序里 focus 已是 true 时置 true 无效，必须 false→true）
+    refocusInput() {
+      this.inputFocus = false;
+      this.$nextTick(() => { this.inputFocus = true; });
+    },
+    // 英译汉：提交手打的中文
+    async submitTyped() {
+      if (this.picked || this.submitted) return;
+      const val = (this.typed || '').trim();
+      if (!val) return;
+      this.picked = val; // 标记已答（用于展示/禁用）
+      this.submitted = true;
+      try {
+        const res = await submitPlayAnswer(this.cardId, val, this.mode);
+        this.applyResult(res.data || {});
+      } catch (e) {
+        this.picked = null; // 失败回退，允许重试
+        uni.showToast({ title: e.errMsg || '提交失败', icon: 'none' });
+      } finally {
+        this.submitted = false;
+      }
+    },
+    // 统一的答题结果处理
+    async applyResult(d) {
+      this.lastCorrect = !!d.correct;
+      this.lastCorrectText = d.correctMeaning || '';
+      this.acceptedList = Array.isArray(d.acceptedAnswers) ? d.acceptedAnswers : [];
+      this.lastCoin = d.coinReward || 0;
+      this.moodNow = d.mood || 'none';
+      this.moodValue = d.moodScore || 0;
+      this.coins = d.coins != null ? d.coins : this.coins;
+      if (this.lastCorrect) this.correctStreak += 1;
+      else this.correctStreak = 0;
+      // 同步卡片列表（心情会显示在卡片上）
+      await store.fetchCards(true);
+    },
     async choose(opt) {
       if (this.picked || this.submitted) return; // 已选，防止连点
       this.picked = opt.text;
       this.submitted = true;
       try {
-        const res = await submitPlayAnswer(this.cardId, opt.text);
-        const d = res.data || {};
-        this.lastCorrect = !!d.correct;
-        this.lastCorrectText = d.correctMeaning || '';
-        this.lastCoin = d.coinReward || 0;
-        this.moodNow = d.mood || 'none';
-        this.moodValue = d.moodScore || 0;
-        this.coins = d.coins != null ? d.coins : this.coins;
-        if (this.lastCorrect) this.correctStreak += 1;
-        else this.correctStreak = 0;
-        // 同步卡片列表（心情会显示在卡片上）
-        await store.fetchCards(true);
+        const res = await submitPlayAnswer(this.cardId, opt.text, this.mode);
+        await this.applyResult(res.data || {});
       } catch (e) {
         // 失败则回退选择状态，允许重试
         this.picked = null;
@@ -306,6 +374,65 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 18rpx;
+}
+
+/* ===== 英译汉输入区 ===== */
+.trans-input-wrap {
+  margin: 8rpx 0 24rpx;
+  padding: 8rpx 24rpx;
+  background: #f7f8fa;
+  border: 2rpx solid #e0e0e0;
+  border-radius: 16rpx;
+}
+
+.trans-input-wrap.ok {
+  background: #e8f5e9;
+  border-color: #4caf50;
+}
+
+.trans-input-wrap.err {
+  background: #ffebee;
+  border-color: #f44336;
+}
+
+.trans-input {
+  height: 88rpx;
+  font-size: 32rpx;
+  color: #212121;
+  text-align: center;
+}
+
+.trans-submit {
+  background: linear-gradient(135deg, #7e57c2, #9575cd);
+  color: #fff;
+  border-radius: 44rpx;
+  font-size: 30rpx;
+  line-height: 84rpx;
+  height: 84rpx;
+  margin-bottom: 8rpx;
+}
+
+.trans-submit[disabled] {
+  opacity: 0.5;
+}
+
+.typed-echo {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8rpx;
+  margin-bottom: 8rpx;
+}
+
+.typed-label {
+  font-size: 24rpx;
+  color: #9e9e9e;
+}
+
+.typed-text {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #212121;
 }
 
 .option {

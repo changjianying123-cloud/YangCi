@@ -132,12 +132,27 @@ export default {
       }
       // 点卡片 → 选「喂养」或「玩耍」（两者都算复习）
       uni.showActionSheet({
-        itemList: ['🍼 喂养（拼写复习）', '🎈 玩耍（选词复习）'],
+        itemList: ['🍼 喂养（拼写复习）', '🎈 玩耍（提升心情）'],
         success: (res) => {
-          const page = res.tapIndex === 1 ? 'play' : 'feed';
-          uni.navigateTo({ url: `/pages/word/${page}?cardId=${card.id}` });
+          if (res.tapIndex === 1) {
+            // 玩耍是二级菜单：选词四选一 / 英译汉
+            this.choosePlayMode(card);
+          } else {
+            uni.navigateTo({ url: `/pages/word/feed?cardId=${card.id}` });
+          }
         },
         fail: () => { /* 用户取消，不做任何事 */ },
+      });
+    },
+    // 玩耍的两种玩法（都提升心情）
+    choosePlayMode(card) {
+      uni.showActionSheet({
+        itemList: ['📝 选词四选一（看英文选中文）', '✍️ 英译汉（看英文打中文）'],
+        success: (res) => {
+          const mode = res.tapIndex === 1 ? 'translate' : 'pick';
+          uni.navigateTo({ url: `/pages/word/play?cardId=${card.id}&mode=${mode}` });
+        },
+        fail: () => { /* 用户取消 */ },
       });
     },
   },

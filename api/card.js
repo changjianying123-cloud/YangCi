@@ -42,9 +42,10 @@ export function recoverHunger(cardId) {
   });
 }
 
-/** 玩耍：取题（英文 + 4 个中文选项） */
-export function getPlayQuestion(cardId) {
-  return request(`/card/${cardId}/play`);
+/** 玩耍：取题。mode='pick' 返回四选一；mode='translate' 只返回英文 */
+export function getPlayQuestion(cardId, mode = 'pick') {
+  const q = mode && mode !== 'pick' ? `?mode=${mode}` : '';
+  return request(`/card/${cardId}/play${q}`);
 }
 
 /** 玩耍：随机取另一张可玩的卡（“继续玩耍”换单词） */
@@ -53,10 +54,10 @@ export function getRandomPlayCard(excludeCardId) {
   return request(`/card/play/random${q}`);
 }
 
-/** 玩耍：交答案（answer 为选中的中文），答对提心情，答错降心情 */
-export function submitPlayAnswer(cardId, answer) {
+/** 玩耍：交答案。mode='translate' 时走容错判分 */
+export function submitPlayAnswer(cardId, answer, mode = 'pick') {
   return request(`/card/${cardId}/play`, {
     method: 'POST',
-    data: { answer },
+    data: { answer, mode },
   });
 }

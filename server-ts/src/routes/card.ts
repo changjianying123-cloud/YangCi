@@ -99,20 +99,22 @@ router.post('/recover-hunger', authMiddleware, async (req: Request, res: Respons
 
 // ===== 玩耍（英文选中文四选一）：答对提升心情，答错降低心情 =====
 
-// 取题：当前单词 + 4 个中文选项（1 对 3 错）
+// 取题：mode=pick 返回 4 选项；mode=translate 只要英文（用户手打中文）
 router.get('/:cardId/play', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const data = await getPlayQuestion(req.userId!, Number(req.params.cardId));
+    const mode = req.query.mode === 'translate' ? 'translate' : 'pick';
+    const data = await getPlayQuestion(req.userId!, Number(req.params.cardId), mode);
     ok(res, data);
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '获取题目失败');
   }
 });
-// 交答案：correct=true 提升心情，false 降低心情
+// 交答案：mode=pick 严格匹配选项；mode=translate 容错匹配任意义项
 router.post('/:cardId/play', authMiddleware, async (req: Request, res: Response) => {
-  const { answer } = req.body;
+  const { answer, mode } = req.body;
   try {
-    const data = await playCard(req.userId!, Number(req.params.cardId), answer);
+    const m = mode === 'translate' ? 'translate' : 'pick';
+    const data = await playCard(req.userId!, Number(req.params.cardId), answer, m);
     ok(res, data, data.message);
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '玩耍失败');
