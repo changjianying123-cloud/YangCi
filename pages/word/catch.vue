@@ -56,6 +56,7 @@
     <SpellInput
       v-model="inputValue"
       :disabled="submitting"
+      :focus="inputFocused"
       button-text="确认拼写"
       @submit="checkSpell"
     />
@@ -105,6 +106,8 @@ export default {
       phase: 'spelling', // spelling | review | failBack
       inputValue: '',
       submitting: false,
+      // 输入框是否保持聚焦：回车/确认提交后重新置 true，方便连续输入
+      inputFocused: true,
       showFullWord: false,
       showComplete: false,
       // 补考信息
@@ -174,6 +177,7 @@ export default {
         this.inputValue = '';
         this.showFullWord = false;
         this.phase = 'spelling';
+        this.refocusInput();
       } else {
         uni.showToast({ title: (res && res.msg) || '暂无可收服单词', icon: 'none' });
       }
@@ -189,6 +193,18 @@ export default {
       } else {
         this.handleSpellResult(word);
       }
+      // 提交后重新聚焦，方便直接拼下一个词
+      this.refocusInput();
+    },
+    /**
+     * 让输入框重新获得焦点
+     * 先置 false 再置 true，确保 prop 值真的发生变化（否则小程序不会重新弹键盘）
+     */
+    refocusInput() {
+      this.inputFocused = false;
+      this.$nextTick(() => {
+        if (!this.showComplete) this.inputFocused = true;
+      });
     },
     // 主线拼写 / 补考拼写结果
     async handleSpellResult(word) {
@@ -269,6 +285,7 @@ export default {
         phonetic: w.phonetic,
         audioUrl: w.audioUrl,
       };
+      this.refocusInput();
     },
     // 滚动检测结果
     handleReviewResult(word) {
@@ -364,6 +381,7 @@ export default {
       this.totalCoinReward = 0;
       this.bonus = 0;
       this.caughtCount = 0;
+      this.inputFocused = true;
       this.reviewPool = [];
       this.reviewWord = {};
       this.reviewIndex = 0;

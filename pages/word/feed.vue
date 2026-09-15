@@ -53,6 +53,7 @@
             <SpellInput
               v-model="spellValue"
               :disabled="submitting"
+              :focus="inputFocused"
               button-text="提交拼写"
               @submit="submitSpell"
             />
@@ -135,6 +136,10 @@ export default {
       hatching: false,
       recovering: false,
       showFullWord: false,
+      // 输入框是否保持聚焦：提交后重新置 true，方便连续拼写
+      inputFocused: true,
+      // 本轮是否已拼满（拼满后要离开页面，不再抢焦点）
+      roundDone: false,
     };
   },
   computed: {
@@ -165,6 +170,7 @@ export default {
         this.card = res.data;
         this.spellCount = res.data.feedSpellCount || 0;
         this.spellRequired = res.data.feedSpellRequired || 3;
+        this.roundDone = false; // 重新载入卡片则开启新一轮
 
         // 判断是否之前拼写过（hadWrongAfterReset 等信息）
         // 直接从后端的 had_wrong_attempt 判断
@@ -205,6 +211,16 @@ export default {
         },
       });
     },
+    /**
+     * 让输入框重新获得焦点
+     * 先置 false 再置 true，确保 prop 真的发生变化（否则小程序不会重新弹键盘）
+     */
+    refocusInput() {
+      this.inputFocused = false;
+      this.$nextTick(() => {
+        this.inputFocused = true;
+      });
+    },
     async submitSpell() {
       if (this.submitting || !this.spellValue.trim()) return;
       this.submitting = true;
@@ -212,7 +228,8 @@ export default {
 
       const ok = this.spellValue.trim().toLowerCase() === (this.card.word || '').toLowerCase();
       this.spellValue = '';
-
+      // 提交后重新聚焦，方便连续拼写（本轮已拼满/升级时会离开页面，不必再聚焦）
+      if (!this.roundDone) this.refocusInput();
       try {
         const res = await feedCard(this.cardId, { spell_correct: ok });
 
@@ -232,6 +249,7 @@ export default {
           this.spellRequired = res.data.required || 3;
 
           if (res.data.done) {
+            this.roundDone = true; // 已拼满，即将返回，不再重新聚焦
             const coinMsg = res.data.coinReward > 0 ? ` +${res.data.coinReward}💰` : '';
             const hasRemedial = res.data.hasRemedial ? ' 需2小时后补救' : '';
             uni.showToast({ title: `喂养成功！${coinMsg}${hasRemedial}`, icon: 'success' });
