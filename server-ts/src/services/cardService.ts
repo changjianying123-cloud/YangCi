@@ -37,15 +37,21 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
   const remedialInfo = getRemedialInfo(row.remedial_feed_at ?? null, now);
   const lv1Info = getLv1Info(row.level, row.feed_spell_count || 0);
 
-  // 心情：玩耍累计的 mood_score 为准；喂养拼写错过则临时叠一层 sad
-  const moodScore = row.mood_score || 0;
-  let mood: MoodType = moodScore >= 1 ? 'happy' : moodScore <= -1 ? 'sad' : 'none';
-  if (row.had_wrong_attempt === 1) mood = 'sad';
-
   // 是否可以喂养（含补救窗口）
   const canFeed = canFeedNow(row.level, row.feed_deadline, row.feed_window_end, isEgg, row.remedial_feed_at ?? null, now);
-  // 是否可以玩耍（饥饿/降级/蛋 都不行）
+  // 是否可以玩耍（饥饿/蛋 都不行）
   const canPlay = canPlayCard(row.feed_deadline, row.feed_window_end, row.hunger_start_at ?? null, isEgg, now);
+
+  // 心情：玩耍累计的 mood_score 为准；喂养拼写错过叠一层 sad；饿肚子也 sad。
+  // 优先级：饥饿 > 拼写错过 > mood_score
+  // （饥饿只叠加在展示层，不写库；喂饱/吃鱼恢复后自然回到 mood_score 的真实档位）
+  // 注：档位统一走 moodOf()，避免与 playCard/getPlayQuestion 用不同阈值导致
+  // 同一张卡「列表 🙂 / 玩耍接口 none」自相矛盾。
+  const moodScore = row.mood_score || 0;
+  let mood: MoodType = moodOf(moodScore);
+  if (row.had_wrong_attempt === 1) mood = 'sad';
+  const isStarving = !isEgg && !canPlay;
+  if (isStarving) mood = 'sad';
 
   return {
     id: row.id,
