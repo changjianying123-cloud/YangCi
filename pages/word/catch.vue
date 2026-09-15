@@ -116,6 +116,10 @@ export default {
       restored: false,
     };
   },
+  created() {
+    // 非响应式的重聚焦去重令牌：同一轮里多次 refocusInput 只让最后一次生效
+    this._refocusToken = 0;
+  },
   onLoad(options) {
     this.bookCode = options.bookCode || '';
     this.bookName = decodeURIComponent(options.bookName || '');
@@ -177,7 +181,6 @@ export default {
         this.inputValue = '';
         this.showFullWord = false;
         this.phase = 'spelling';
-        this.refocusInput();
       } else {
         uni.showToast({ title: (res && res.msg) || '暂无可收服单词', icon: 'none' });
       }
@@ -193,17 +196,25 @@ export default {
       } else {
         this.handleSpellResult(word);
       }
-      // 提交后重新聚焦，方便直接拼下一个词
-      this.refocusInput();
     },
     /**
      * 让输入框重新获得焦点
      * 先置 false 再置 true，确保 prop 值真的发生变化（否则小程序不会重新弹键盘）
+     *
+     * ⚠️ 必须在「状态/阶段切换完成后」再调，且要能承受连续调用：
+     * 之前是在 checkSpell 里立即调一次，异步流程（doCaptureWord -> startReview
+     * -> pickReviewWord）里又调一次，两个 $nextTick 在同一 tick 里互相覆盖，
+     * 结果谁都没真正把 false->true 生效 → 切换到回顾检测后键盘没弹出来。
      */
     refocusInput() {
       this.inputFocused = false;
+      // 叠加去重：同一轮里多次调用只保留最后一个 $nextTick 回调执行
+      const token = ++this._refocusToken;
       this.$nextTick(() => {
-        if (!this.showComplete) this.inputFocused = true;
+        // 已被更新的调用取代，直接跳过
+        if (token !== this._refocusToken) return;
+        if (this.showComplete) return;
+        this.inputFocused = true;
       });
     },
     // 主线拼写 / 补考拼写结果
@@ -231,7 +242,12 @@ export default {
       } else {
         uni.showToast({ title: '拼写错误', icon: 'none' });
       }
+      // ⚠️ 必须先解除 submitting，再重新聚焦：
+      // 输入框 :disabled="submitting"，禁用状态下无法获得焦点，
+      // 而上面 doCaptureWord 里有 await 网络请求，期间 submitting 一直为 true，
+      // 过早 refocus 会被默默丢掉 → 拼写→回顾检测切换后键盘不弹。
       this.submitting = false;
+      this.refocusInput();
     },
     // 拼满 6 次：只做本地判定，校验可收服后加入待收服池（暂不入库、不发币）
     async doCaptureWord() {
@@ -285,7 +301,8 @@ export default {
         phonetic: w.phonetic,
         audioUrl: w.audioUrl,
       };
-      this.refocusInput();
+      // 注：不在这里 refocus——调用方（handleReviewResult / handleSpellResult）
+      // 会在解除 submitting 禁用后统一重聚焦
     },
     // 滚动检测结果
     handleReviewResult(word) {
@@ -325,7 +342,9 @@ export default {
         this.phase = 'failBack';
         uni.showToast({ title: '😅 检测失败，重新拼 6 次', icon: 'none' });
       }
+      // 同 handleSpellResult：先解除禁用再聚焦
       this.submitting = false;
+      this.refocusInput();
     },
     // 完成一组收服：攒满 10 个才真正入库并发币
     async doFinishGroup() {

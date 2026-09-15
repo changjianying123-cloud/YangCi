@@ -228,8 +228,6 @@ export default {
 
       const ok = this.spellValue.trim().toLowerCase() === (this.card.word || '').toLowerCase();
       this.spellValue = '';
-      // 提交后重新聚焦，方便连续拼写（本轮已拼满/升级时会离开页面，不必再聚焦）
-      if (!this.roundDone) this.refocusInput();
       try {
         const res = await feedCard(this.cardId, { spell_correct: ok });
 
@@ -266,6 +264,10 @@ export default {
         uni.showToast({ title: e.errMsg || '操作失败', icon: 'none' });
       } finally {
         this.submitting = false;
+        // ⚠️ 解除 submitting 后再聚焦：输入框 :disabled="submitting"，
+        // 禁用状态下无法获得焦点，提前调用会被默默丢掉。
+        // 本轮已拼满（roundDone）时即将返回，不再聚焦以免键盘闪烁。
+        if (!this.roundDone) this.refocusInput();
       }
     },
     async doHatch() {
