@@ -15,6 +15,7 @@ import {
   isHungryNeedCoins,
   canAffordRecover,
 } from '../utils/cardStatus';
+import { cleanMeaning } from '../utils/meaning';
 
 async function getUserCoins(userId: number): Promise<number> {
   const [rows] = await pool.execute<UserRow[]>(
@@ -36,8 +37,9 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
   const remedialInfo = getRemedialInfo(row.remedial_feed_at ?? null, now);
   const lv1Info = getLv1Info(row.level, row.feed_spell_count || 0);
 
-  // 心情：本轮拼写错过 → sad
-  let mood: MoodType = 'none';
+  // 心情：玩耍累计的 mood_score 为准；喂养拼写错过则临时叠一层 sad
+  const moodScore = row.mood_score || 0;
+  let mood: MoodType = moodScore >= 1 ? 'happy' : moodScore <= -1 ? 'sad' : 'none';
   if (row.had_wrong_attempt === 1) mood = 'sad';
 
   // 是否可以喂养（含补救窗口）
@@ -66,6 +68,9 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
     feedSpellRemaining: Math.max(0, (config.card.feedSpellCount || 3) - (row.feed_spell_count || 0)),
     nextFeedIn: remedialInfo.hasRemedial ? remedialInfo.humanReadable : windowInfo.humanReadable,
     mood,
+    moodScore,
+    playCount: row.play_count || 0,
+    playCorrectCount: row.play_correct_count || 0,
     hasRemedial: remedialInfo.hasRemedial && !remedialInfo.canFeedRemedial,
     remedialFeedAt: row.remedial_feed_at ?? null,
     isLv1: lv1Info.isLv1,
@@ -470,4 +475,138 @@ export async function abandonCard(userId: number, cardId: number): Promise<void>
     'UPDATE user_cards SET abandoned = 1, abandoned_at = ? WHERE id = ?',
     [Date.now(), cardId]
   );
+}
+
+// ===== 玩耍（英文选中文四选一）=====
+
+/** 根据 mood_score 算心情档位 */
+function moodOf(score: number): MoodType {
+  if (score >= config.play.scoreHappy) return 'happy';
+  if (score <= config.play.scoreSad) return 'sad';
+  return 'none';
+}
+
+/** 取该卡（校验归属 + 未遗弃） */
+async function loadOwnedCard(userId: number, cardId: number): Promise<UserCardRow | null> {
+  const [rows] = await pool.execute<UserCardRow[]>(
+    `SELECT uc.*, w.word, w.meaning, w.phonetic, w.audio_url, b.book_code, b.book_name
+     FROM user_cards uc
+     JOIN words w ON w.id = uc.word_id
+     JOIN books b ON b.id = w.book_id
+     WHERE uc.id = ? AND uc.user_id = ? AND (uc.abandoned IS NULL OR uc.abandoned = 0)`,
+    [cardId, userId]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * 出题：当前单词的英文 + 4 个中文选项（1 正确 + 3 干扰）。
+ * 干扰项优先从「同本书」抽，不够再全库抽。
+ */
+export async function getPlayQuestion(userId: number, cardId: number) {
+  const card = await loadOwnedCard(userId, cardId);
+  if (!card) throw new Error('卡牌不存在或已被遗弃');
+
+  const need = Math.max(1, config.play.optionCount - 1);
+  const clean = (s: unknown) => cleanMeaning(s, 12);
+  const correctText = clean(card.meaning);
+  if (!correctText) throw new Error('该单词释义为空，无法出题');
+
+  // 干扰项：多抽一些，清洗后去重（避免「跑，奔跑」和「奔跑」同时出现）
+  const rawPool: string[] = [];
+  const lim = Number(need) * 6 || 18;
+  const [sameBook] = await pool.query<RowDataPacket[]>(
+    `SELECT DISTINCT w.meaning FROM words w
+     JOIN books b ON b.id = w.book_id
+     WHERE b.book_code = ? AND w.id <> ? AND w.meaning IS NOT NULL AND w.meaning <> ''
+     ORDER BY RAND() LIMIT ${lim}`,
+    [card.book_code ?? '', card.word_id ?? 0]
+  );
+  sameBook.forEach((r) => rawPool.push(String(r.meaning)));
+
+  const [globalRows] = await pool.query<RowDataPacket[]>(
+    `SELECT DISTINCT meaning FROM words
+     WHERE id <> ? AND meaning IS NOT NULL AND meaning <> ''
+     ORDER BY RAND() LIMIT ${lim * 2}`,
+    [card.word_id ?? 0]
+  );
+  globalRows.forEach((r) => rawPool.push(String(r.meaning)));
+
+  const distractors: string[] = [];
+  for (const raw of rawPool) {
+    if (distractors.length >= need) break;
+    const t = clean(raw);
+    if (!t || t === correctText) continue;
+    if (distractors.includes(t)) continue;
+    distractors.push(t);
+  }
+  if (distractors.length < need) {
+    throw new Error('题库释义不足，无法生成 4 个选项');
+  }
+
+  const options = [
+    { text: correctText, correct: true },
+    ...distractors.slice(0, need).map((text) => ({ text, correct: false })),
+  ].sort(() => Math.random() - 0.5);
+
+  const score = card.mood_score || 0;
+  return {
+    cardId: card.id,
+    wordId: card.word_id,
+    word: card.word || '',
+    phonetic: card.phonetic || null,
+    audioUrl: buildAudioUrl(card.word || '', card.audio_url),
+    options,
+    moodScore: score,
+    mood: moodOf(score),
+    playCount: card.play_count || 0,
+    playCorrectCount: card.play_correct_count || 0,
+  };
+}
+
+/**
+ * 提交玩耍答案：答对 → mood_score +1（提升心情）；答错 → -1（降低心情）。
+ * 答对额外奖励少量金币。
+ */
+export async function playCard(userId: number, cardId: number, answer: string) {
+  const card = await loadOwnedCard(userId, cardId);
+  if (!card) throw new Error('卡牌不存在或已被遗弃');
+  if (!answer || typeof answer !== 'string') throw new Error('缺少答案');
+
+  const correct = answer.trim() === cleanMeaning(card.meaning, 12).trim();
+  const displayMeaning = cleanMeaning(card.meaning, 12);
+  const delta = correct ? config.play.correctDelta : config.play.wrongDelta;
+  const before = card.mood_score || 0;
+  const after = Math.max(config.play.scoreMin, Math.min(config.play.scoreMax, before + delta));
+  // 心情从「非开心」跨到「开心」时才给金币，防止反复刷
+  const becameHappy = moodOf(before) !== 'happy' && moodOf(after) === 'happy';
+  const coinReward = correct && becameHappy ? config.play.coinReward : 0;
+
+  await pool.execute(
+    `UPDATE user_cards
+     SET mood_score = ?,
+         play_count = play_count + 1,
+         play_correct_count = play_correct_count + ?
+     WHERE id = ? AND user_id = ?`,
+    [after, correct ? 1 : 0, cardId, userId]
+  );
+  if (coinReward > 0) {
+    await pool.execute('UPDATE users SET coins = coins + ? WHERE id = ?', [coinReward, userId]);
+  }
+
+  const coins = await getUserCoins(userId);
+  return {
+    correct,
+    correctMeaning: displayMeaning,
+    moodScore: after,
+    mood: moodOf(after),
+    moodChanged: moodOf(before) !== moodOf(after),
+    coinReward,
+    coins,
+    playCount: (card.play_count || 0) + 1,
+    playCorrectCount: (card.play_correct_count || 0) + (correct ? 1 : 0),
+    message: correct
+      ? `答对了！${moodOf(after) === 'happy' ? '单词很开心 😊' : '心情 +1'}${coinReward ? ` 金币 +${coinReward}` : ''}`
+      : `答错了，正确答案是「${displayMeaning}」。${moodOf(after) === 'sad' ? '单词很伤心 😢' : '心情 -1'}`,
+  };
 }

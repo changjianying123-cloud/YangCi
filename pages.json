@@ -51,6 +51,12 @@
       }
     },
     {
+      "path": "pages/word/play",
+      "style": {
+        "navigationBarTitleText": "玩耍单词"
+      }
+    },
+    {
       "path": "pages/battle/battle",
       "style": {
         "navigationBarTitleText": "单词对战",

@@ -238,6 +238,10 @@ export async function initDatabase() {
     `ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL AFTER username`,
     `ALTER TABLE users ADD UNIQUE KEY uk_username (username)`,
     `ALTER TABLE words ADD COLUMN pos VARCHAR(64) DEFAULT NULL AFTER example_sentence`,
+    // 心情系统：玩耍（英文选中文）提升/降低心情
+    `ALTER TABLE user_cards ADD COLUMN mood_score INT DEFAULT 0 AFTER downgrade_count`,
+    `ALTER TABLE user_cards ADD COLUMN play_count INT DEFAULT 0 AFTER mood_score`,
+    `ALTER TABLE user_cards ADD COLUMN play_correct_count INT DEFAULT 0 AFTER play_count`,
   ];
   // users 迁移执行完后，顺带补一次唯一索引（老表可能已有重复 null，需容错）
   try {

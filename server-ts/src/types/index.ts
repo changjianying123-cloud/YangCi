@@ -59,6 +59,10 @@ export interface UserCardRow extends RowDataPacket {
   had_wrong_attempt?: number;
   abandoned?: number;
   abandoned_at?: number | null;
+  // 心情系统（玩耍）
+  mood_score?: number;
+  play_count?: number;
+  play_correct_count?: number;
 }
 
 export interface CardDTO {
@@ -84,6 +88,11 @@ export interface CardDTO {
   feedSpellRemaining: number;
   nextFeedIn: string;
   mood: MoodType;
+  /** 心情分值（负数=悲伤，0=平静，正数=开心） */
+  moodScore: number;
+  /** 玩耍累计次数 / 答对次数 */
+  playCount: number;
+  playCorrectCount: number;
   hasRemedial: boolean;
   remedialFeedAt: number | null;
   isLv1: boolean;

@@ -57,4 +57,16 @@ export const config = {
     // 拼写错误后补救喂养延迟
     remedialFeedDelayMs: 2 * 60 * 60 * 1000,
   },
+  // 玩耍系统（英文选中文四选一）：答对提升心情，答错降低心情
+  play: {
+    optionCount: 4,        // 四选一
+    scoreHappy: 3,         // mood_score 到达该值 → 开心
+    scoreSad: -3,          // mood_score 到达该值 → 悲伤
+    scoreMax: 6,           // 心情分值上限
+    scoreMin: -6,          // 心情分值下限
+    correctDelta: 1,       // 答对 +1
+    wrongDelta: -1,        // 答错 -1
+    coinReward: 1,         // 答对奖励金币
+    maxAsksPerRound: 5,    // 一轮最多问几题（全对即结束）
+  },
 };

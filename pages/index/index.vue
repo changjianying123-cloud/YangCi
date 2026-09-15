@@ -125,7 +125,20 @@ export default {
       uni.navigateTo({ url: '/pages/battle/battle' });
     },
     onCardClick(card) {
-      uni.navigateTo({ url: `/pages/word/feed?cardId=${card.id}` });
+      // 单词蛋直接孵蛋，没有「玩耍」概念
+      if (card.isEgg) {
+        uni.navigateTo({ url: `/pages/word/feed?cardId=${card.id}` });
+        return;
+      }
+      // 点卡片 → 选「喂养」或「玩耍」（两者都算复习）
+      uni.showActionSheet({
+        itemList: ['🍼 喂养（拼写复习）', '🎈 玩耍（选词复习）'],
+        success: (res) => {
+          const page = res.tapIndex === 1 ? 'play' : 'feed';
+          uni.navigateTo({ url: `/pages/word/${page}?cardId=${card.id}` });
+        },
+        fail: () => { /* 用户取消，不做任何事 */ },
+      });
     },
   },
 };

@@ -8,6 +8,8 @@ import {
   hatchEgg,
   abandonCard,
   recoverHunger,
+  getPlayQuestion,
+  playCard,
 } from '../services/cardService';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
@@ -79,6 +81,29 @@ router.post('/recover-hunger', authMiddleware, async (req: Request, res: Respons
     ok(res, data, '饥饿恢复成功，开始喂养吧！');
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '恢复失败');
+  }
+});
+
+// ===== 玩耍（英文选中文四选一）：答对提升心情，答错降低心情 =====
+
+// 取题：当前单词 + 4 个中文选项（1 对 3 错）
+router.get('/:cardId/play', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const data = await getPlayQuestion(req.userId!, Number(req.params.cardId));
+    ok(res, data);
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '获取题目失败');
+  }
+});
+
+// 交答案：correct=true 提升心情，false 降低心情
+router.post('/:cardId/play', authMiddleware, async (req: Request, res: Response) => {
+  const { answer } = req.body;
+  try {
+    const data = await playCard(req.userId!, Number(req.params.cardId), answer);
+    ok(res, data, data.message);
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '玩耍失败');
   }
 });
 

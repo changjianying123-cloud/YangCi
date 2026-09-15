@@ -41,3 +41,16 @@ export function recoverHunger(cardId) {
     data: { card_id: cardId },
   });
 }
+
+/** 玩耍：取题（英文 + 4 个中文选项） */
+export function getPlayQuestion(cardId) {
+  return request(`/card/${cardId}/play`);
+}
+
+/** 玩耍：交答案（answer 为选中的中文），答对提心情，答错降心情 */
+export function submitPlayAnswer(cardId, answer) {
+  return request(`/card/${cardId}/play`, {
+    method: 'POST',
+    data: { answer },
+  });
+}
