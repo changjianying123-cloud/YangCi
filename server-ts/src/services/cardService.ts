@@ -15,7 +15,7 @@ import {
   isHungryNeedCoins,
   canAffordRecover,
 } from '../utils/cardStatus';
-import { cleanMeaning } from '../utils/meaning';
+import { cleanMeaning, POS_PREFIX_RE } from '../utils/meaning';
 
 async function getUserCoins(userId: number): Promise<number> {
   const [rows] = await pool.execute<UserRow[]>(
@@ -506,6 +506,67 @@ export function acceptedAnswers(meaning: unknown): string[] {
   return [...out].filter(Boolean);
 }
 
+/**
+ * 列出一个单词的多个义项（用于答对后展示「其它意思」）。
+ * 与 cleanMeaning 不同：cleanMeaning 只取第一个义项（用于四选一选项），
+ * 这里要拿到全部义项，但每个义项本身限长。
+ * 策略：先用「；;」切分不同义项组（词义差别大），每个组内限长；
+ *       若无分号（只有一个组），则回退到按「，,、」切同义词。
+ * 例：「adj. 突然的，意外的；粗鲁的，唐突的；险峻的，陡峭的」
+ *     → ['突然的，意外的','粗鲁的，唐突的','险峻的，陡峭的']
+ */
+export function sensesOf(meaning: unknown, maxLen = 16): string[] {
+  if (meaning === null || meaning === undefined) return [];
+  let s = String(meaning).trim();
+  if (!s) return [];
+
+  // 去词性前缀（可叠加）
+  let prev = '';
+  let guard = 0;
+  while (prev !== s && guard++ < 5) {
+    prev = s;
+    s = s.replace(POS_PREFIX_RE, '');
+  }
+  // 去 <...> 语域标注
+  s = s.replace(/<[^>]*>/g, '').trim();
+  // 去开头的括号说明
+  const parenHead = s.match(/^[（(][^）)]*[）)]\s*(.+)$/);
+  if (parenHead && parenHead[1]) s = parenHead[1].trim();
+
+  // 分号切不同的义项组；没分号则说明整串是一个义项 → 按逗号拆同义词
+  let groups = s.split(/[；;]/).map((x) => x.trim()).filter(Boolean);
+  if (groups.length <= 1) {
+    groups = s.split(/[，,、]/).map((x) => x.trim()).filter(Boolean);
+  }
+
+  const out: string[] = [];
+  for (let g of groups) {
+    // 词性前缀可能出现在中段（如「破裂；断裂；v. 破裂」），逐个剥
+    let p = '';
+    let gg = 0;
+    while (p !== g && gg++ < 5) { p = g; g = g.replace(POS_PREFIX_RE, ''); }
+    // 每个义项组限长（过长按逗号再切、仍长则硬截断）
+    let one = g;
+    if (one.length > maxLen) {
+      const sub = one.split(/[，,、]/).map((x) => x.trim()).filter(Boolean);
+      one = sub[0] || one;
+    }
+    if (one.length > maxLen) one = one.slice(0, maxLen);
+    one = one.replace(/^[，,、；;。.：:\s]+/, '').replace(/[，,、；;。.：:]+$/, '').trim();
+    // 截断可能留下未闭合的括号（如「从事金融活动（finance 的」）→ 丢弃未闭合尾部
+    one = one.replace(/[（(][^）)]*$/, '').trim();
+    one = one.replace(/[，,、；;。.：:]+$/, '').trim();
+    const noParen = one.replace(/[（(][^）)]*[）)]/g, '').trim();
+    let val = noParen || one;
+    // 去掉只剩标点/括号的垃圾项（如截断后只剩「（」）
+    val = val.replace(/^[（()）\s]+$/, '').trim();
+    if (!val || out.includes(val)) continue;
+    out.push(val);
+    if (out.length >= 6) break; // 词义太多时只展示前几个
+  }
+  return out.length ? out : [cleanMeaning(meaning, maxLen)];
+}
+
 /** 用户输入归一化：去空白、去标点、全角转半角常见项、小写 */
 export function normalizeAnswer(s: unknown): string {
   if (s === null || s === undefined) return '';
@@ -606,7 +667,7 @@ export async function getPlayQuestion(userId: number, cardId: number, mode: Play
 
   // 英译汉：不打选项，答案由后端判分（前端不泄露答案）
   if (mode === 'translate') {
-    return { ...base, options: [] };
+    return { ...base, options: [], senses: [] };
   }
 
   const need = Math.max(1, config.play.optionCount - 1);
@@ -648,7 +709,7 @@ export async function getPlayQuestion(userId: number, cardId: number, mode: Play
     ...distractors.slice(0, need).map((text) => ({ text, correct: false })),
   ].sort(() => Math.random() - 0.5);
 
-  return { ...base, options };
+  return { ...base, options, senses: [correctText, ...sensesOf(card.meaning).filter((s) => s !== correctText)].filter(Boolean) };
 }
 
 /**
@@ -686,10 +747,14 @@ export async function playCard(userId: number, cardId: number, answer: string, m
   }
 
   const coins = await getUserCoins(userId);
+  // 义项列表：首项统一用「显示释义」，其余为其它义项（前端可直接按首项对齐过滤）
+  const allSenses = sensesOf(card.meaning);
+  const otherSenses = allSenses.filter((s) => s !== displayMeaning);
   return {
     correct,
     correctMeaning: displayMeaning,
     acceptedAnswers: acceptedAnswers(card.meaning),
+    senses: [displayMeaning, ...otherSenses].filter(Boolean),
     mode,
     moodScore: after,
     mood: moodOf(after),

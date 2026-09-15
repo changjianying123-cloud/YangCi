@@ -13,6 +13,7 @@
  */
 
 const POS_PREFIX_RE = /^(\s*(?:n|v|vt|vi|adj|adv|prep|pron|conj|num|art|int|interj|aux|abbr|vt|vi)\s*\.\s*)+/i;
+export { POS_PREFIX_RE };
 
 export function cleanMeaning(raw: unknown, maxLen = 12): string {
   if (raw === null || raw === undefined) return '';

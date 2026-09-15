@@ -43,11 +43,11 @@
         <!-- ===== 玩法 2：英译汉（手打中文） ===== -->
         <block v-else>
           <text class="ask-hint">写出它的中文意思（任意一个义项即可）</text>
-          <view class="trans-input-wrap" :class="{ ok: picked && lastCorrect, err: picked && !lastCorrect }">
+          <view class="trans-input-wrap" :class="{ ok: lastCorrect, err: hasTried && !lastCorrect }">
             <input
               class="trans-input"
               v-model="typed"
-              :disabled="!!picked"
+              :disabled="lastCorrect"
               :focus="inputFocus"
               placeholder="输入中文意思…"
               confirm-type="done"
@@ -55,26 +55,59 @@
             />
           </view>
           <button
-            v-if="!picked"
+            v-if="!hasTried"
             class="trans-submit"
             :disabled="!typed.trim()"
             @click="submitTyped"
           >提交答案</button>
-          <view v-else class="typed-echo">
+          <view v-if="hasTried && lastCorrect" class="typed-echo">
             <text class="typed-label">你的答案：</text>
-            <text class="typed-text">{{ typed }}</text>
+            <text class="typed-text">{{ lastAnswer }}</text>
           </view>
         </block>
 
         <!-- 结果反馈 -->
-        <view v-if="picked" class="feedback" :class="{ good: lastCorrect, bad: !lastCorrect }">
+        <view v-if="hasTried" class="feedback" :class="{ good: lastCorrect, bad: !lastCorrect }">
           <text class="feedback-title">{{ lastCorrect ? '🎉 答对了！心情 +1' : '😔 答错了，心情 -1' }}</text>
-          <text class="feedback-sub" v-if="!lastCorrect">正确答案：{{ lastCorrectText }}</text>
-          <text class="feedback-sub" v-if="!lastCorrect && acceptedList.length">只要对上一个就算对：{{ acceptedList.join(' / ') }}</text>
+
+          <!-- 英译汉：答对展示我的回答 + 其它义项 -->
+          <block v-if="isTranslate">
+            <text class="feedback-sub" v-if="lastCorrect">你的回答：{{ lastAnswer }}</text>
+            <view v-if="lastCorrect && otherSenses.length" class="senses-box">
+              <text class="senses-title">📚 它还有这些意思：</text>
+              <view class="senses-chips">
+                <text v-for="(s, i) in otherSenses" :key="i" class="sense-chip">{{ s }}</text>
+              </view>
+            </view>
+            <text class="feedback-sub" v-if="!lastCorrect && acceptedList.length">正确答案（任一即可）：{{ acceptedList.join(' / ') }}</text>
+            <text class="feedback-sub warn" v-if="!lastCorrect">答对才能继续哦，再试一次吧 👇</text>
+          </block>
+
+          <!-- 选词四选一：保持原有反馈 -->
+          <block v-else>
+            <text class="feedback-sub" v-if="!lastCorrect">正确答案：{{ lastCorrectText }}</text>
+          </block>
+
           <text class="feedback-sub" v-if="lastCoin > 0">💰 单词开心起来了，奖励 +{{ lastCoin }} 金币</text>
         </view>
 
-        <button v-if="picked" class="next-btn" @click="nextQuestion">
+        <!-- 英译汉答错 → 就地重答（换词按钮不出现） -->
+        <block v-if="isTranslate && hasTried && !lastCorrect">
+          <view class="trans-input-wrap retry">
+            <input
+              class="trans-input"
+              v-model="typed"
+              :focus="inputFocus"
+              placeholder="再写一次中文意思…"
+              confirm-type="done"
+              @confirm="retryTyped"
+            />
+          </view>
+          <button class="trans-submit" :disabled="!typed.trim()" @click="retryTyped">重新作答</button>
+        </block>
+
+        <!-- 选词模式答错也可再选；两种模式都答对后才出现换词 -->
+        <button v-if="hasTried && (lastCorrect || !isTranslate)" class="next-btn" @click="nextQuestion">
           🎈 继续玩耍（换成另一个单词）
         </button>
       </view>
@@ -110,10 +143,14 @@ export default {
       submitted: false, // 已交答案，等后端返回
       lastCorrect: false,
       lastCorrectText: '',
+      lastAnswer: '',      // 英译汉：用户最近一次提交的回答
+      otherSenses: [],     // 英译汉：答对后展示的其它义项
       lastCoin: 0,
       acceptedList: [], // 英译汉答错时列出的可接受答案
       typed: '',        // 英译汉用户输入
       inputFocus: true, // 输入框聚焦
+      cleared: false,   // 本题是否已答对（答对才允许换词）
+      hasTried: false,  // 本题是否至少提交过一次
       moodNow: 'none',
       moodValue: 0,
       correctStreak: 0,
@@ -125,6 +162,7 @@ export default {
     isTranslate() {
       return this.mode === 'translate';
     },
+    // 答错时不清空输入框内容供用户修改，故另存一份展示用
     moodEmoji() {
       return moodSymbol(this.moodNow);
     },
@@ -172,9 +210,13 @@ export default {
           this.picked = null;
           this.lastCorrect = false;
           this.lastCorrectText = '';
+          this.lastAnswer = '';
+          this.otherSenses = [];
           this.lastCoin = 0;
           this.acceptedList = [];
           this.typed = '';
+          this.cleared = false;
+          this.hasTried = false;
           // 英译汉需要弹键盘；小程序 focus 已是 true 时不会再弹 → false→true 闪一下
           if (this.isTranslate) this.refocusInput();
         }
@@ -189,16 +231,25 @@ export default {
       this.inputFocus = false;
       this.$nextTick(() => { this.inputFocus = true; });
     },
-    // 英译汉：提交手打的中文
+    // 英译汉：提交手打的中文（首次作答）
     async submitTyped() {
-      if (this.picked || this.submitted) return;
+      await this.submitAnswer();
+    },
+    // 英译汉：答错后重新作答
+    async retryTyped() {
+      await this.submitAnswer();
+    },
+    // 英译汉提交（首次 + 重试共用）
+    async submitAnswer() {
+      if (this.submitted) return;
       const val = (this.typed || '').trim();
       if (!val) return;
       this.picked = val; // 标记已答（用于展示/禁用）
+      this.lastAnswer = val;
       this.submitted = true;
       try {
         const res = await submitPlayAnswer(this.cardId, val, this.mode);
-        this.applyResult(res.data || {});
+        await this.applyResult(res.data || {});
       } catch (e) {
         this.picked = null; // 失败回退，允许重试
         uni.showToast({ title: e.errMsg || '提交失败', icon: 'none' });
@@ -211,12 +262,31 @@ export default {
       this.lastCorrect = !!d.correct;
       this.lastCorrectText = d.correctMeaning || '';
       this.acceptedList = Array.isArray(d.acceptedAnswers) ? d.acceptedAnswers : [];
+      const senses = Array.isArray(d.senses) ? d.senses : [];
+      // 答对后展示「其它义项」：去掉与显示释义重复的
+      this.otherSenses = this.lastCorrect
+        ? senses.filter((s) => s && s !== this.lastCorrectText)
+        : [];
       this.lastCoin = d.coinReward || 0;
       this.moodNow = d.mood || 'none';
       this.moodValue = d.moodScore || 0;
       this.coins = d.coins != null ? d.coins : this.coins;
+      this.cleared = this.lastCorrect;
+      this.hasTried = true;
       if (this.lastCorrect) this.correctStreak += 1;
       else this.correctStreak = 0;
+      if (this.isTranslate) {
+        if (this.lastCorrect) {
+          // 答对了就不需要键盘了，收起并禁用输入
+          this.inputFocus = false;
+          this.typed = '';
+        } else {
+          // 答错了：清空重填，重新弹键盘，且不给「继续玩耍」
+          this.typed = '';
+          this.picked = null;
+          this.refocusInput();
+        }
+      }
       // 同步卡片列表（心情会显示在卡片上）
       await store.fetchCards(true);
     },
@@ -433,6 +503,46 @@ export default {
   font-size: 32rpx;
   font-weight: bold;
   color: #212121;
+}
+
+.trans-input-wrap.retry {
+  background: #fff8e1;
+  border-color: #ffb300;
+}
+
+/* 答对后展示的「其它义项」 */
+.senses-box {
+  margin-top: 16rpx;
+  padding: 18rpx 20rpx;
+  background: #e8f5e9;
+  border-radius: 16rpx;
+}
+
+.senses-title {
+  display: block;
+  font-size: 26rpx;
+  color: #2e7d32;
+  margin-bottom: 12rpx;
+}
+
+.senses-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.sense-chip {
+  padding: 8rpx 20rpx;
+  background: #fff;
+  border: 2rpx solid #a5d6a7;
+  border-radius: 28rpx;
+  font-size: 26rpx;
+  color: #2e7d32;
+}
+
+.feedback-sub.warn {
+  color: #ef6c00;
+  font-weight: bold;
 }
 
 .option {
