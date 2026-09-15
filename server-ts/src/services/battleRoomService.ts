@@ -300,8 +300,7 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
   const gOrder = getDeployOrder(room.id, g);
   applyOrder(player, oOrder);
   applyOrder(enemy, gOrder);
-  for (const u of player.units) if (!u.dead) u.shield = Math.max(u.shield || 0, 1);
-  for (const u of enemy.units) if (!u.dead) u.shield = Math.max(u.shield || 0, 1);
+  // 开局不给屏障：屏障靠拼对名词/形容词自己叠，不系统白送。
   BL.ensureVerb(player);
   BL.ensureVerb(enemy);
 

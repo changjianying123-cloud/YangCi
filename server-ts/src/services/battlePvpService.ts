@@ -136,8 +136,8 @@ async function createGoldBattle(p0: number, p1: number, bet: number): Promise<nu
 
   const player = core.buildSide(pool0);
   const enemy = core.buildSide(pool1);
-  for (const u of player.units) if (!u.dead) u.shield = Math.max(u.shield || 0, 1);
-  for (const u of enemy.units) if (!u.dead) u.shield = Math.max(u.shield || 0, 1);
+  // 开局不给屏障：屏障靠拼对名词/形容词自己叠，不系统白送。
+  // 先手优势由下面的投币决定（currentSide = Math.random() < 0.5 ? 0 : 1）。
   BL.ensureVerb(player);
   BL.ensureVerb(enemy);
 
