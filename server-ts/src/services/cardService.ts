@@ -500,6 +500,27 @@ async function loadOwnedCard(userId: number, cardId: number): Promise<UserCardRo
 }
 
 /**
+ * 随机挑一张可玩耍的卡（排除当前的 cardId）。
+ * “继续玩耍”换一个单词，但不能把用户自己带上别的卡。
+ */
+export async function pickRandomPlayableCard(userId: number, excludeCardId?: number) {
+  const [rows] = await pool.query<UserCardRow[]>(
+    `SELECT uc.id, w.word
+     FROM user_cards uc
+     JOIN words w ON w.id = uc.word_id
+     WHERE uc.user_id = ?
+       AND (uc.abandoned IS NULL OR uc.abandoned = 0)
+       AND uc.is_egg = 0
+       AND uc.level > 0
+       AND (? IS NULL OR uc.id <> ?)
+     ORDER BY RAND() LIMIT 1`,
+    [userId, excludeCardId ?? null, excludeCardId ?? null]
+  );
+  if (!rows[0]) return null;
+  return { cardId: rows[0].id, word: rows[0].word || '' };
+}
+
+/**
  * 出题：当前单词的英文 + 4 个中文选项（1 正确 + 3 干扰）。
  * 干扰项优先从「同本书」抽，不够再全库抽。
  */

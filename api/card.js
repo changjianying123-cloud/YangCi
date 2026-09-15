@@ -47,6 +47,12 @@ export function getPlayQuestion(cardId) {
   return request(`/card/${cardId}/play`);
 }
 
+/** 玩耍：随机取另一张可玩的卡（“继续玩耍”换单词） */
+export function getRandomPlayCard(excludeCardId) {
+  const q = excludeCardId ? `?exclude=${excludeCardId}` : '';
+  return request(`/card/play/random${q}`);
+}
+
 /** 玩耍：交答案（answer 为选中的中文），答对提心情，答错降心情 */
 export function submitPlayAnswer(cardId, answer) {
   return request(`/card/${cardId}/play`, {

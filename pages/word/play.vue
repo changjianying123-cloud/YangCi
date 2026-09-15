@@ -46,13 +46,14 @@
         </view>
 
         <button v-if="picked" class="next-btn" @click="nextQuestion">
-          {{ moodNow === 'happy' ? '再玩一题 🎈' : '继续玩耍 🎈' }}
+          🎈 继续玩耍（换成另一个单词）
         </button>
       </view>
 
       <!-- 说明 -->
       <view class="tips">
         <text class="tip-line">🎈 玩耍和喂养一样，都算复习这个单词</text>
+        <text class="tip-line">🔀 点「继续玩耍」会换成另一个单词</text>
         <text class="tip-line">😊 连续答对让它开心，它会给你金币</text>
         <text class="tip-line">😢 答错会让它难过，记得多陪它玩</text>
       </view>
@@ -63,7 +64,7 @@
 </template>
 
 <script>
-import { getPlayQuestion, submitPlayAnswer } from '@/api/card.js';
+import { getPlayQuestion, submitPlayAnswer, getRandomPlayCard } from '@/api/card.js';
 import AudioPlayer from '@/components/AudioPlayer/AudioPlayer.vue';
 import { moodSymbol } from '@/utils/common.js';
 import store from '@/store/index.js';
@@ -84,6 +85,7 @@ export default {
       moodValue: 0,
       correctStreak: 0,
       loading: false,
+      switching: false, // 换词中，防连点
     };
   },
   computed: {
@@ -111,8 +113,7 @@ export default {
   onLoad(options) {
     this.cardId = options.cardId;
     this.loadQuestion();
-  },
-  methods: {
+  },  methods: {
     optionClass(opt) {
       if (!this.picked) return '';
       if (opt.correct) return 'correct';
@@ -167,13 +168,30 @@ export default {
       }
     },
     async nextQuestion() {
-      if (this.moodNow === 'happy') {
-        // 已经开心了，问一下是否继续
-        uni.showToast({ title: '它现在很开心 😊', icon: 'none', duration: 1200 });
-        setTimeout(() => this.loadQuestion(), 400);
-        return;
+      // 换一个单词继续玩耍（同一个词反复刷太枯燥）
+      if (this.switching) return;
+      this.switching = true;
+      try {
+        const res = await getRandomPlayCard(this.cardId);
+        if (res.data && res.data.cardId) {
+          // 若换了单词，重新拉该词的题目
+          if (Number(res.data.cardId) !== Number(this.cardId)) {
+            this.cardId = res.data.cardId;
+            uni.setNavigationBarTitle({ title: `玩耍：${res.data.word}` });
+          }
+          await this.loadQuestion();
+        } else {
+          // 只有这一张卡了 → 原词再出一题
+          uni.showToast({ title: '只有这一个单词，再玩一题吧', icon: 'none', duration: 1500 });
+          await this.loadQuestion();
+        }
+      } catch (e) {
+        // 没有其它可玩的词 → 原词继续
+        uni.showToast({ title: '没有其它可玩耍的单词了', icon: 'none', duration: 1500 });
+        await this.loadQuestion();
+      } finally {
+        this.switching = false;
       }
-      await this.loadQuestion();
     },
   },
 };

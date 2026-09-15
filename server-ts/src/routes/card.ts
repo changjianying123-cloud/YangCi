@@ -10,6 +10,7 @@ import {
   recoverHunger,
   getPlayQuestion,
   playCard,
+  pickRandomPlayableCard,
 } from '../services/cardService';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
@@ -29,6 +30,18 @@ router.get('/pending', authMiddleware, async (req: Request, res: Response) => {
 router.get('/count', authMiddleware, async (req: Request, res: Response) => {
   const count = await getCardCount(req.userId!);
   ok(res, { count });
+});
+
+// 随机另一张可玩的卡（“继续玩耍”换单词用）—— ⚠️ 必须在 /:cardId 之前注册，否则会被当成 cardId
+router.get('/play/random', authMiddleware, async (req: Request, res: Response) => {
+  const exclude = req.query.exclude ? Number(req.query.exclude) : undefined;
+  try {
+    const data = await pickRandomPlayableCard(req.userId!, exclude);
+    if (!data) return fail(res, 404, '没有其它可玩耍的单词了');
+    ok(res, data);
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '获取失败');
+  }
 });
 
 router.get('/:cardId', authMiddleware, async (req: Request, res: Response) => {
@@ -95,7 +108,6 @@ router.get('/:cardId/play', authMiddleware, async (req: Request, res: Response) 
     fail(res, 400, err instanceof Error ? err.message : '获取题目失败');
   }
 });
-
 // 交答案：correct=true 提升心情，false 降低心情
 router.post('/:cardId/play', authMiddleware, async (req: Request, res: Response) => {
   const { answer } = req.body;
