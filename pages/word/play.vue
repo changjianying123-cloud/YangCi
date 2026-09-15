@@ -38,16 +38,6 @@
               <text v-else-if="picked === opt.text" class="option-mark">❌</text>
             </view>
           </view>
-          <!-- 选词模式没有输入框，用一个隐形输入框拦回车：
-               答对后回车 = 继续玩耍（换词） -->
-          <input
-            class="ghost-input"
-            :focus="pickFocus"
-            :hold-keyboard="true"
-            :adjust-position="false"
-            confirm-type="done"
-            @confirm="onPickEnter"
-          />
         </block>
 
         <!-- ===== 玩法 2：英译汉（手打中文） ===== -->
@@ -75,6 +65,19 @@
             <text class="typed-text">{{ lastAnswer }}</text>
           </view>
         </block>
+
+        <!-- 回车拦接器：两种玩法都用它接管「回车 = 继续玩耍」。
+             ⚠️ 不能复用英译汉的输入框：它答对后是 disabled 的，
+             disabled 的 input 收不到回车（键盘已收起、@confirm 不触发）。
+             所以单独放一个常驻可聚焦的输入框。 -->
+        <input
+          class="ghost-input"
+          :focus="ghostFocus"
+          :hold-keyboard="true"
+          :adjust-position="false"
+          confirm-type="done"
+          @confirm="onGhostEnter"
+        />
 
         <!-- 结果反馈 -->
         <view v-if="hasTried" class="feedback" :class="{ good: lastCorrect, bad: !lastCorrect }">
@@ -160,7 +163,7 @@ export default {
       acceptedList: [], // 英译汉答错时列出的可接受答案
       typed: '',        // 英译汉用户输入
       inputFocus: true, // 输入框聚焦
-      pickFocus: false, // 选词四选一的隐形输入框聚焦（用于拦回车）
+      ghostFocus: false, // 回车拦接器聚焦（两种玩法共用）
       cleared: false,   // 本题是否已答对（答对才允许换词）
       hasTried: false,  // 本题是否至少提交过一次
       moodNow: 'none',
@@ -234,8 +237,8 @@ export default {
           this.hasTried = false;
           // 英译汉需要弹键盘；小程序 focus 已是 true 时不会再弹 → false→true 闪一下
           if (this.isTranslate) this.refocusInput();
-          // 选词模式挂上隐形输入框，让回车能触发「继续玩耍」
-          this.focusPickInput();
+          // 新题：选词模式先挂好拦接器；英译汉由上面的 refocusInput 掌焦
+          if (!this.isTranslate) this.focusGhostInput();
         }
       } catch (e) {
         // request.js 已经弹过一次 toast，这里不再重复；只负责把用户退回上一页，
@@ -250,25 +253,23 @@ export default {
       this.inputFocus = false;
       this.$nextTick(() => { this.inputFocus = true; });
     },
-    // 选词模式：挂上隐形输入框（同样 false→true 闪烁），让它能拦到回车
-    focusPickInput() {
-      if (this.isTranslate) return;
-      this.pickFocus = false;
-      this.$nextTick(() => { this.pickFocus = true; });
+    // 选词模式：挂上回车拦接器（同样 false→true 闪烁），让它能拦到回车
+    focusGhostInput() {
+      this.ghostFocus = false;
+      this.$nextTick(() => { this.ghostFocus = true; });
     },
     /**
-     * 选词四选一的隐形输入框回车：
-     *  答对 → 继续玩耍（换词）
-     *  未答对 → 什么都不做（等用户先选答案）
+     * 回车拦接器的回调（两种玩法共用）：
+     *  已答对 → 继续玩耍（换词）
+     *  未答对 → 什么都不做（等用户先作答）
      * ⚠️ 回车后要重新聚焦，否则下一次回车就拦不到了
      */
-    onPickEnter() {
+    onGhostEnter() {
       if (this.hasTried && this.lastCorrect) {
         this.nextQuestion();
         return;
       }
-      this.pickFocus = false;
-      this.$nextTick(() => { this.pickFocus = true; });
+      this.focusGhostInput();
     },
     /**
      * 英译汉输入框回车：
@@ -328,15 +329,21 @@ export default {
       else this.correctStreak = 0;
       if (this.isTranslate) {
         if (this.lastCorrect) {
-          // 答对了就不需要键盘了，收起并禁用输入
+          // 答对了：收起真实输入框（它会被 disabled），把回车交给拦接器
           this.inputFocus = false;
+          this.ghostFocus = false;
           this.typed = '';
+          this.$nextTick(() => { this.ghostFocus = true; });
         } else {
           // 答错了：清空重填，重新弹键盘，且不给「继续玩耍」
+          this.ghostFocus = false; // 让出焦点给真实输入框
           this.typed = '';
           this.picked = null;
           this.refocusInput();
         }
+      } else {
+        // 选词模式：答对后挂上拦接器
+        if (this.lastCorrect) this.focusGhostInput();
       }
       // 同步卡片列表（心情会显示在卡片上）
       await store.fetchCards(true);
@@ -714,15 +721,21 @@ export default {
   margin-top: 12rpx;
 }
 
-/* 选词模式的隐形输入框：只用来拦回车，不占位、不可见、不顶起页面 */
+/* 选词模式的隐形输入框：只用来拦回车。
+   ⚠️ 小程序里 opacity:0 / 尺寸为 1rpx / z-index:-1 的 input 根本不会被聚焦，
+   也就收不到回车。改成：真实可聚焦的尺寸 + 透明文字 + 移出可视区（但不 display:none），
+   这样键盘能挂到它身上，@confirm 才会触发。 */
 .ghost-input {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 1rpx;
-  height: 1rpx;
-  opacity: 0;
-  z-index: -1;
+  left: -200rpx;
+  top: 0;
+  width: 120rpx;
+  height: 60rpx;
+  color: transparent;
+  background: transparent;
+  caret-color: transparent;
+  border: none;
+  outline: none;
 }
 
 /* 说明 */
