@@ -130,6 +130,12 @@ export default {
         uni.navigateTo({ url: `/pages/word/feed?cardId=${card.id}` });
         return;
       }
+      // 🍼 饥饿 / 降级中的卡不能玩耍，只能去喂养（或花金币恢复）
+      if (card.canPlay === false) {
+        uni.showToast({ title: '单词饿啦，先喂养才能玩耍 🍼', icon: 'none' });
+        uni.navigateTo({ url: `/pages/word/feed?cardId=${card.id}` });
+        return;
+      }
       // 点卡片 → 选「喂养」或「玩耍」（两者都算复习）
       uni.showActionSheet({
         itemList: ['🍼 喂养（拼写复习）', '🎈 玩耍（提升心情）'],

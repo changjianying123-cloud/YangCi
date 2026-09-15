@@ -82,6 +82,8 @@ export interface CardDTO {
   isEgg: boolean;
   status: CardStatus;
   canFeed: boolean;
+  /** 是否可以玩耍（饥饿/降级/蛋 都不行） */
+  canPlay: boolean;
   feedSpellCount: number;
   feedSpellRequired: number;
   /** 还需拼写正确多少次（倒着数 3→2→1） */

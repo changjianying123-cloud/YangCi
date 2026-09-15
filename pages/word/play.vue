@@ -221,7 +221,9 @@ export default {
           if (this.isTranslate) this.refocusInput();
         }
       } catch (e) {
-        uni.showToast({ title: e.errMsg || '加载题目失败', icon: 'none' });
+        // request.js 已经弹过一次 toast，这里不再重复；只负责把用户退回上一页，
+        // 避免饥饿 / 蛋 / 卡不存在时卡在空白页
+        setTimeout(() => { uni.navigateBack({ delta: 1 }); }, 1200);
       } finally {
         this.loading = false;
       }

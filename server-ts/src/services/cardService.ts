@@ -14,6 +14,7 @@ import {
   getFeedCoinReward,
   isHungryNeedCoins,
   canAffordRecover,
+  canPlayCard,
 } from '../utils/cardStatus';
 import { cleanMeaning, POS_PREFIX_RE } from '../utils/meaning';
 
@@ -44,6 +45,8 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
 
   // 是否可以喂养（含补救窗口）
   const canFeed = canFeedNow(row.level, row.feed_deadline, row.feed_window_end, isEgg, row.remedial_feed_at ?? null, now);
+  // 是否可以玩耍（饥饿/降级/蛋 都不行）
+  const canPlay = canPlayCard(row.feed_deadline, row.feed_window_end, row.hunger_start_at ?? null, isEgg, now);
 
   return {
     id: row.id,
@@ -62,6 +65,7 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
     isEgg,
     status,
     canFeed,
+    canPlay,
     feedSpellCount: Math.max(0, Math.min(row.feed_spell_count || 0, config.card.feedSpellCount || 3)),
     feedSpellRequired: config.card.feedSpellCount || 3,
     // 还剩几次拼写（倒着数：3 → 2 → 1）
@@ -79,8 +83,7 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
     // 金币系统
     coins: userCoins,
     isHungry: status === 'hungry' || status === 'downgraded',
-    canRecoverFromHunger: !canFeed && (status === 'hungry' || status === 'downgraded') && canAffordRecover(userCoins),
-    feedCoinReward: canFeed ? getFeedCoinReward(row.level) : 0,
+    canRecoverFromHunger: !canFeed && (status === 'hungry' || status === 'downgraded') && canAffordRecover(userCoins),    feedCoinReward: canFeed ? getFeedCoinReward(row.level) : 0,
   };
 }
 
@@ -641,10 +644,26 @@ async function loadOwnedCard(userId: number, cardId: number): Promise<UserCardRo
 }
 
 /**
+ * 校验卡牌当前是否可玩耍。
+ * 不可玩耍的情况：
+ *  - 单词蛋：需先孵化
+ *  - 饥饿 / 降级：需先喂养（或花金币恢复）
+ */
+function assertPlayable(card: UserCardRow): void {
+  const now = Date.now();
+  if (card.is_egg === 1) throw new Error('单词蛋需要先孵化才能玩耍');
+  if (!canPlayCard(card.feed_deadline, card.feed_window_end, card.hunger_start_at ?? null, card.is_egg === 1, now)) {
+    throw new Error('单词饿啦，先喂养（或花金币恢复）才能玩耍哦 🍼');
+  }
+}
+
+/**
  * 随机挑一张可玩耍的卡（排除当前的 cardId）。
  * “继续玩耍”换一个单词，但不能把用户自己带上别的卡。
+ * ⚠️ 饥饿 / 降级 / 蛋 的卡都不能进随机池（跟 assertPlayable 同口径）
  */
 export async function pickRandomPlayableCard(userId: number, excludeCardId?: number) {
+  const now = Date.now();
   const [rows] = await pool.query<UserCardRow[]>(
     `SELECT uc.id, w.word
      FROM user_cards uc
@@ -653,9 +672,13 @@ export async function pickRandomPlayableCard(userId: number, excludeCardId?: num
        AND (uc.abandoned IS NULL OR uc.abandoned = 0)
        AND uc.is_egg = 0
        AND uc.level > 0
+       AND (
+         (uc.feed_deadline > ?)                      -- 还没到喂养时间（健康）
+         OR (? >= uc.feed_deadline AND ? < uc.feed_window_end)  -- 正在喂养窗口内
+       )
        AND (? IS NULL OR uc.id <> ?)
      ORDER BY RAND() LIMIT 1`,
-    [userId, excludeCardId ?? null, excludeCardId ?? null]
+    [userId, now, now, now, excludeCardId ?? null, excludeCardId ?? null]
   );
   if (!rows[0]) return null;
   return { cardId: rows[0].id, word: rows[0].word || '' };
@@ -669,6 +692,7 @@ export async function pickRandomPlayableCard(userId: number, excludeCardId?: num
 export async function getPlayQuestion(userId: number, cardId: number, mode: PlayMode = 'pick') {
   const card = await loadOwnedCard(userId, cardId);
   if (!card) throw new Error('卡牌不存在或已被遗弃');
+  assertPlayable(card);
 
   const clean = (s: unknown) => cleanMeaning(s, 12);
   const correctText = clean(card.meaning);
@@ -744,6 +768,7 @@ export async function getPlayQuestion(userId: number, cardId: number, mode: Play
 export async function playCard(userId: number, cardId: number, answer: string, mode: PlayMode = 'pick') {
   const card = await loadOwnedCard(userId, cardId);
   if (!card) throw new Error('卡牌不存在或已被遗弃');
+  assertPlayable(card);
   if (!answer || typeof answer !== 'string') throw new Error('缺少答案');
 
   const displayMeaning = cleanMeaning(card.meaning, 12);

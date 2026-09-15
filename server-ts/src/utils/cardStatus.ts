@@ -2,6 +2,43 @@ import { config } from '../config';
 import { CardStatus, MoodType } from '../types';
 
 /**
+ * 判断是否处于饥饿状态（饥饿或降级都在此列）
+ * ⚠️ 饥饿 / 降级 / 蛋 状态的卡不能玩耍，必须先喂养（或先花金币恢复）
+ */
+export function isHungryStatus(
+  feedDeadline: number,
+  feedWindowEnd: number,
+  hungerStartAt: number | null,
+  isEgg: boolean,
+  now = Date.now()
+): boolean {
+  if (isEgg) return false; // 蛋是另一个终态，由 isEgg 单独拦
+  if (now < feedDeadline) return false;
+  if (now >= feedDeadline && now < feedWindowEnd) return false;
+  return now >= feedWindowEnd;
+}
+
+/**
+ * 判断是否可以玩耍
+ * - 蛋：不可以（要孵化）
+ * - 饥饿 / 降级：不可以（要先喂养或花金币恢复）
+ * - 正规窗口内 / 还没到喂养时间：可以
+ *
+ * 注意：允许「还没到喂养时间」（normal）的卡玩耍，也允许「正在喂养窗口内」
+ * （incubating）的卡玩耍——后者用户边玩边喂都行，不算饥饿。
+ */
+export function canPlayCard(
+  feedDeadline: number,
+  feedWindowEnd: number,
+  hungerStartAt: number | null,
+  isEgg: boolean,
+  now = Date.now()
+): boolean {
+  if (isEgg) return false;
+  return !isHungryStatus(feedDeadline, feedWindowEnd, hungerStartAt, isEgg, now);
+}
+
+/**
  * 获取喂养的金币收益（健康状态喂养 = 等级对应的金币）
  */
 export function getFeedCoinReward(level: number): number {
