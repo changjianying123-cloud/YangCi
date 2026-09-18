@@ -1097,10 +1097,20 @@ export default {
               const myName = (this.me && this.me.nickname) || '';
               return !!myName && s.indexOf(myName) < 0;
             }
-            return s.indexOf('🤖') >= 0;
+            // AI 模式：只弹「敌方真实行动」的日志。「思考中…」「轮到你行动」只是
+            // 占位/回合标记，且用户拿到的快照里 AI 已行动完毕，弹这些反而会让人困惑。
+            if (s.indexOf('🤖') < 0) return false;
+            if (s.indexOf('思考中') >= 0) return false;
+            if (s.indexOf('轮到你行动') >= 0) return false;
+            return true;
           });
           // 当前回合是否属于对手（server 快照里 currentSide 就是行动方）
-          const isFoeTurn = s.currentSide !== this.mySideIdx && !s.over;
+          // ⚠️ AI 模式例外：resolveToPlayerTurn 会在**同一次请求里**执行敌方行动并交回
+          //   玩家回合，客户端拿到快照时 currentSide 已经是自己 → 用 isFoeTurn 卡会导致
+          //   敌方行动永远不弹土司。所以 AI 模式只要检测到 🤖 新日志就弹。
+          const isFoeTurn = this.isGold
+            ? (s.currentSide !== this.mySideIdx && !s.over)
+            : true;
           if (foeLogs.length && isFoeTurn) this.toastAction(foeLogs, true);
           // 只在“回合真的变了”时重建倒计时，避免轮询把秒数刷回 30
           if (changed) this.syncTimerFromSnap();
