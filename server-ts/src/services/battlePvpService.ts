@@ -37,6 +37,12 @@ export async function joinQueue(userId: number, bet: number): Promise<JoinResult
   if (!BET_OPTIONS.includes(bet)) throw new Error('押注金额不合法');
   const coins = await getCoins(userId);
   if (coins < bet) throw new Error(`金币不足（需 ${bet}，你有 ${coins}）`);
+  // 💰 金币场：该档位需要的单词数（不足不让匹配）
+  const needWords = BL.goldTroopSize(Number(bet));
+  const myPool = await core.fetchBattlePool(userId);
+  if (myPool.length < needWords) {
+    throw new Error(`你的可出战单词只有 ${myPool.length} 个，不够本档位（${bet} 金币）需要的 ${needWords} 个`);
+  }
 
   // 先清理自己之前的残留队列记录（重开匹配）
   await pool.execute('DELETE FROM battle_queue WHERE user_id = ? AND battle_id IS NULL', [userId]);
@@ -133,9 +139,13 @@ async function createGoldBattle(p0: number, p1: number, bet: number): Promise<nu
   const [pool0, pool1] = await Promise.all([core.fetchBattlePool(p0), core.fetchBattlePool(p1)]);
   if (!pool0.length) throw new Error('对手没有可出战的健康单词');
   if (!pool1.length) throw new Error('你没有可出战的健康单词，先去收服并喂养');
+  // 💰 金币场：按押注档位定阵容人数
+  const troop = BL.goldTroopSize(Number(bet));
+  if (pool0.length < troop) throw new Error(`对手的可出战单词只有 ${pool0.length} 个，不够本档位需要的 ${troop} 个`);
+  if (pool1.length < troop) throw new Error(`你的可出战单词只有 ${pool1.length} 个，不够本档位需要的 ${troop} 个`);
 
-  const player = core.buildSide(pool0);
-  const enemy = core.buildSide(pool1);
+  const player = core.buildSide(pool0, troop);
+  const enemy = core.buildSide(pool1, troop);
   // 开局不给屏障：屏障靠拼对名词/形容词自己叠，不系统白送。
   // 先手优势由下面的投币决定（currentSide = Math.random() < 0.5 ? 0 : 1）。
   BL.ensureVerb(player);

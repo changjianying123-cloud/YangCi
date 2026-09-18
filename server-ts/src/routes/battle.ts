@@ -4,6 +4,8 @@ import { ok, fail } from '../utils/response';
 import * as battleSvc from '../services/battleService';
 import * as pvpSvc from '../services/battlePvpService';
 import * as roomSvc from '../services/battleRoomService';
+import { fetchBattlePool } from '../services/battleService';
+import * as BL from '../utils/battleLogic';
 
 const router = Router();
 
@@ -21,8 +23,19 @@ router.post('/ai/start', authMiddleware, async (req: Request, res: Response) => 
 
 // ===== 金币场（真人 PvP）=====
 // 可选押注档位
-router.get('/gold/bets', authMiddleware, async (_req: Request, res: Response) => {
-  ok(res, { options: pvpSvc.BET_OPTIONS });
+router.get('/gold/bets', authMiddleware, async (req: Request, res: Response) => {
+  let myWords = 0;
+  try {
+    myWords = (await fetchBattlePool(req.userId!)).length;
+  } catch {
+    myWords = 0;
+  }
+  const optionsDetail = pvpSvc.BET_OPTIONS.map((bet) => ({
+    bet,
+    troop: BL.goldTroopSize(bet),
+    affordable: myWords >= BL.goldTroopSize(bet),
+  }));
+  ok(res, { options: pvpSvc.BET_OPTIONS, optionsDetail, myWords });
 });
 
 // 加入匹配队列（body { bet }）
@@ -58,8 +71,20 @@ router.post('/gold/cancel', authMiddleware, async (req: Request, res: Response) 
 
 // ===== 金币场「房间」 =====
 // 可选押注档位
-router.get('/room/bets', authMiddleware, async (_req: Request, res: Response) => {
-  ok(res, { options: roomSvc.BET_OPTIONS });
+router.get('/room/bets', authMiddleware, async (req: Request, res: Response) => {
+  // 返回档位 + 每档所需单词数 + 当前用户拥有多少健康单词（前端据此置灰不够的档）
+  let myWords = 0;
+  try {
+    myWords = (await fetchBattlePool(req.userId!)).length;
+  } catch {
+    myWords = 0;
+  }
+  const options = roomSvc.BET_OPTIONS.map((bet) => ({
+    bet,
+    troop: BL.goldTroopSize(bet),
+    affordable: myWords >= BL.goldTroopSize(bet),
+  }));
+  ok(res, { options: roomSvc.BET_OPTIONS, optionsDetail: options, myWords });
 });
 
 // 房间列表

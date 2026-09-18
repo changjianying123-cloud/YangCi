@@ -94,16 +94,20 @@
               v-for="b in betOptions"
               :key="b"
               class="bet-item"
-              :class="{ picked: bet === b }"
-              @click="bet = b"
+              :class="{ picked: bet === b, locked: !betAffordable(b) }"
+              @click="pickBet(b)"
             >
               <text class="bet-coin">🪙</text>
               <text class="bet-num">{{ b }}</text>
+              <text class="bet-troop">{{ betTroop(b) }}词</text>
             </view>
           </view>
         </view>
-        <button class="start-btn gold" :disabled="creating" @click="onCreateRoom">
-          {{ creating ? '创建中…' : '➕ 创建房间（押 ' + bet + ' 金币）' }}
+        <text class="create-hint">
+          本档位需 <b>{{ betTroop(bet) }}</b> 个健康单词（你有 {{ myWordCount }} 个）
+        </text>
+        <button class="start-btn gold" :disabled="creating || !betAffordable(bet)" @click="onCreateRoom">
+          {{ creating ? '创建中…' : (betAffordable(bet) ? '➕ 创建房间（押 ' + bet + ' 金币 · ' + betTroop(bet) + ' 词）' : '单词不够，无法开此档') }}
         </button>
 
         <!-- 房间列表（模拟桌子 + 两个座位） -->
@@ -397,6 +401,9 @@ export default {
       rookieSpellMode: 'zh-spell',
       bet: 10,          // 金币场押注金额
       betOptions: [10, 30, 50, 100, 200],
+      // 💰 金币场：每档位所需单词数（后端为准，这里做兜底显示）
+      betTroopMap: { 10: 3, 30: 4, 50: 5, 100: 7, 200: 10 },
+      myWordCount: 0,   // 我的健康单词数（用于判断哪些档位能开）
       // ===== 新房制金币场 =====
       rooms: [],         // 房间列表
       roomsRaw: '',      // 诊断：接口原始返回
@@ -862,9 +869,46 @@ export default {
       this.mode = 'gold';
       this.msg = '';
       if (!this.ws) this.initWs();
+      this.loadBets();
       this.loadRooms();
       if (this._roomsPoll) clearInterval(this._roomsPoll);
       this._roomsPoll = setInterval(() => { this.loadRooms(true); }, 3000);
+    },
+    // 💰 拉取押注档位 + 每档所需单词数 + 我的健康单词数（后端为准）
+    async loadBets() {
+      try {
+        const res = await battleApi.roomBets();
+        const d = (res && res.data) || {};
+        if (typeof d.myWords === 'number') this.myWordCount = d.myWords;
+        if (Array.isArray(d.optionsDetail) && d.optionsDetail.length) {
+          const m = {};
+          d.optionsDetail.forEach((o) => { m[o.bet] = o.troop; });
+          this.betTroopMap = m;
+          this.betOptions = d.optionsDetail.map((o) => o.bet);
+        }
+      } catch (e) {
+        // 失败就走本地兜底表
+      }
+    },
+    // 该档位需要多少个单词
+    betTroop(b) {
+      const n = (this.betTroopMap || {})[b];
+      return n || 5;
+    },
+    // 我的单词够不够开这个档位
+    betAffordable(b) {
+      return this.myWordCount >= this.betTroop(b);
+    },
+    // 选押注：不够的档位不允许选（点了提示原因）
+    pickBet(b) {
+      if (!this.betAffordable(b)) {
+        uni.showToast({
+          title: `需 ${this.betTroop(b)} 个健康单词，你只有 ${this.myWordCount} 个`,
+          icon: 'none',
+        });
+        return;
+      }
+      this.bet = b;
     },
     leaveGoldLobby() {
       // 若正在对局中（已有快照）→ 回大厅视为认输（判负，对手拿底池）
@@ -889,6 +933,8 @@ export default {
         const res = await battleApi.roomList();
         this.rooms = (res && res.data && res.data.rooms) || [];
         this.roomsRaw = res && res.data ? ('code=' + res.code + ' rooms=' + JSON.stringify((res.data.rooms || []).map(r => r.id))) : ('无data:' + JSON.stringify(res));
+        // 💰 顺带刷新我的单词数（可能刚收服/喂饱了卡）
+        if (!quiet) this.loadBets();
       } catch (e) {
         this.roomsRaw = 'err:' + ((e && (e.msg || e.message)) || JSON.stringify(e));
         if (!quiet) this.msg = (e && (e.msg || e.message)) || '加载房间列表失败';
@@ -1432,10 +1478,13 @@ export default {
 .dt-tip { display: block; margin-top: 14rpx; font-size: 22rpx; color: rgba(255,255,255,.7); line-height: 1.5; }
 /* 押注档位 */
 .bet-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 16rpx; margin: 10rpx 0 24rpx; }
-.bet-item { flex: 0 0 auto; min-width: 110rpx; padding: 18rpx 10rpx; border-radius: 16rpx; background: rgba(0,0,0,.22); border: 2rpx solid rgba(255,255,255,.3); text-align: center; }
+.bet-item { flex: 0 0 auto; min-width: 130rpx; padding: 16rpx 10rpx; border-radius: 16rpx; background: rgba(0,0,0,.22); border: 2rpx solid rgba(255,255,255,.3); text-align: center; }
 .bet-item.picked { border-color: #ffd54f; background: rgba(255,213,79,.28); }
+.bet-item.locked { opacity: .38; border-style: dashed; }
 .bet-coin { font-size: 26rpx; }
 .bet-num { display: block; font-size: 34rpx; font-weight: 800; }
+.bet-troop { display: block; font-size: 20rpx; color: rgba(255,255,255,.75); margin-top: 4rpx; }
+.create-hint { display: block; font-size: 22rpx; color: rgba(255,255,255,.75); margin: 0 0 18rpx; text-align: center; }
 .start-btn.gold { background: linear-gradient(135deg, #ffb300, #ffd54f); }
 .start-btn.cancel { background: rgba(255,255,255,.25); color: #fff; }
 .lobby-back { display: block; margin-top: 18rpx; color: rgba(255,255,255,.8); font-size: 26rpx; }

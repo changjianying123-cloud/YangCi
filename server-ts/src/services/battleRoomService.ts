@@ -90,7 +90,8 @@ export async function roomView(room: BattleRoomRow, viewerId: number): Promise<R
   if (room.status === 'deploy' && myRole !== 'spectator') {
     try {
       const poolWords = await core.fetchBattlePool(viewerId);
-      const side = core.buildSide(poolWords);
+      // 💰 金币场：布阵预览也要按押注档位的人数
+      const side = core.buildSide(poolWords, BL.goldTroopSize(Number(room.bet)));
       const r = side as unknown as { units: BattleUnit[] };
       // ⭐ 方案 C：词性固定，不再推举兼职攻击手（此处也不同 ensureVerb）
       const saved = getDeployOrder(room.id, viewerId);
@@ -127,6 +128,12 @@ export async function listRooms(viewerId = -1): Promise<RoomView[]> {
 /** 创建房间（房主自动入座） */
 export async function createRoom(ownerId: number, bet: number): Promise<RoomView> {
   if (!BET_OPTIONS.includes(bet)) throw new Error('押注金额不合法');
+  // 💰 金币场：该档位需要的单词数（不足则不让开房）
+  const needWords = BL.goldTroopSize(Number(bet));
+  const ownerWords = await core.fetchBattlePool(ownerId);
+  if (ownerWords.length < needWords) {
+    throw new Error(`你的可出战单词只有 ${ownerWords.length} 个，不够本档位（${bet} 金币）需要的 ${needWords} 个`);
+  }
   // 同一人只能有一个未结束的房间
   await pool.execute(
     `DELETE FROM battle_rooms WHERE owner_user_id = ? AND status IN ('waiting','ready_check')`,
@@ -156,6 +163,11 @@ export async function joinRoom(roomId: number, userId: number): Promise<RoomView
   // 出战场地校验
   const words = await core.fetchBattlePool(userId);
   if (!words.length) throw new Error('你没有可出战的健康单词，先去收服并喂养');
+  // 💰 金币场：该档位需要的单词数（不足则不让入座）
+  const needWords = BL.goldTroopSize(Number(room.bet));
+  if (words.length < needWords) {
+    throw new Error(`你的可出战单词只有 ${words.length} 个，不够本档位（${room.bet} 金币）需要的 ${needWords} 个`);
+  }
 
   const [lock] = await pool.execute<ResultSetHeader>(
     `UPDATE battle_rooms SET guest_user_id = ?, status = 'ready_check'
@@ -299,9 +311,13 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
   const [pool0, pool1] = await Promise.all([core.fetchBattlePool(o), core.fetchBattlePool(g)]);
   if (!pool0.length) throw new Error('房主没有可出战的健康单词');
   if (!pool1.length) throw new Error('对手没有可出战的健康单词');
+  // 💰 金币场：按押注档位定阵容人数（硬保证；不足则拒绝开战）
+  const troop = BL.goldTroopSize(Number(room.bet));
+  if (pool0.length < troop) throw new Error(`房主的可出战单词只有 ${pool0.length} 个，不够本档位需要的 ${troop} 个`);
+  if (pool1.length < troop) throw new Error(`对手的可出战单词只有 ${pool1.length} 个，不够本档位需要的 ${troop} 个`);
 
-  const player = core.buildSide(pool0);
-  const enemy = core.buildSide(pool1);
+  const player = core.buildSide(pool0, troop);
+  const enemy = core.buildSide(pool1, troop);
   // 应用各自布阵顺序
   const oOrder = getDeployOrder(room.id, o);
   const gOrder = getDeployOrder(room.id, g);

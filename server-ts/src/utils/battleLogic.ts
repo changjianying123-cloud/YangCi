@@ -6,7 +6,28 @@ export const TURN_SECONDS = 30;
 export const FRONT_SIZE = 2;     // 每列可行动行数：两列模型下每列「前两行」可行动（共 4 个）
 export const NPCS_FRONT = 1;     // 每列可被攻击的行数（敌方每列最前 1 个，共 2 个）
 export const COL_COUNT = 2;      // 列数（左右两列）
-export const TROOP_SIZE = 5;     // 每边默认出征数量
+export const TROOP_SIZE = 5;     // 每边默认出征数量（兜底；AI 场/金币场各有自己的算法）
+export const AI_TROOP_SIZE = 10; // 🤖 AI 场：每方固定 10 个单词
+export const MAX_TROOP_SIZE = 10; // 阵容上限（金币场最高档也封顶到 10）
+
+/**
+ * 💰 金币场：押注金币 → 每方出战单词数（2026-09-18 拍板）
+ * 押得越多，阵容越大，封顶 10（与 AI 场一致）。
+ * 前端展示 / 后端校验都读这张表。
+ */
+export const GOLD_TROOP_BY_BET: Record<number, number> = {
+  10: 3,
+  30: 4,
+  50: 5,
+  100: 7,
+  200: 10,
+};
+
+/** 按押注金额取金币场阵容人数（未知档位回退 TROOP_SIZE） */
+export function goldTroopSize(bet: number): number {
+  const n = GOLD_TROOP_BY_BET[Number(bet)];
+  return n || TROOP_SIZE;
+}
 // 两列模型：左列=我方，右列=敌方，每列纵向排列 5 个单词位。
 // 「前两行」为一线（可行动 / 可被攻击），其余为后备行。
 export const AI_ACTS_PER_TURN = 2;  // AI 每回合最多让 2 个一线单词行动（与玩家前两行对齐）

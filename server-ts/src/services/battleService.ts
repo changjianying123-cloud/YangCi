@@ -55,15 +55,20 @@ async function fetchAiPool(limit = 80): Promise<PickedWord[]> {
 }
 
 /**
- * 取一个词的**固定**战斗词性：只认第一个可识别的词性，不再“按缺改编”。
- * 例：'n.,adj.' → noun；'v.' → verb。无标注 → 默认 noun（护盾手）。
- * ⚠️ 方案 C：一局内词性从始至终不变。
+ * 取一个词的**固定**战斗词性，一局内不变。
+ * ⭐ 2026-09-18 放宽：只要词性标注里**含 verb**，本局就优先当动词（攻击手）用——
+ *   解决"纯动词卡太少，10 人阵容几乎没攻击手"的问题。
+ *   例：'noun,verb' → verb（以前是 noun）；'noun,verb,adjective' → verb。
+ *   不含 verb 时才取第一个可识别词性；无标注 → 默认 noun（护盾手）。
+ * ⚠️ 方案 C 仍然成立：每张卡的词性在**本局内从始至终不变**。
  */
 function primaryRole(c: PickedWord): BattleRole {
   const roles = (c.pos || '')
     .split(/[,，、/;；]+/)
     .map((s) => s.trim().toLowerCase().replace(/\.$/, ''))
     .filter((r): r is BattleRole => r === 'noun' || r === 'adjective' || r === 'verb' || r === 'adverb');
+  // ⭐ 含 verb 就优先当动词（不限位置）；否则取第一个
+  if (roles.indexOf('verb') >= 0) return 'verb';
   return roles[0] || 'noun';
 }
 
@@ -82,13 +87,11 @@ export function buildSide(poolWords: PickedWord[], sizeOverride?: number): { uni
 }
 
 /**
- * 从池子里组一支部队（BL.TROOP_SIZE 个）：
+ * 从池子里组一支部队（默认 BL.TROOP_SIZE 个，可用 sizeOverride 指定）：
  *   - 至少 1 个作战动词
  *   - 词性尽量均衡（verb/noun/adjective/adverb 都尽量来一个，剩余补）
- *   - 至少 1 个作战动词
- *   - 词性尽量均衡（verb/noun/adjective/adverb 都尽量来一个，剩余补）
- *   - ⭐ 方案 C：每个词的词性**只取它的第一词性**，一局内固定不变（不再“改编”多词性词）
- * 若词不足 BL.TROOP_SIZE 则有多少用多少；若整个词池一个动词都没有，则**不允许开战**（由调用方拦下）。
+ *   - ⭐ 方案 C：每个词的词性**固定**，一局内不变（含 verb 的词优先取 verb，见 primaryRole）
+ * 若词不足 want 则有多少用多少；若整个词池一个动词都没有，则**不允许开战**（由调用方拦下）。
  */
 function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: BattleUnit[]; cols: number[][]; queue: number[] } {
   const byRole: Record<BattleRole, PickedWord[]> = { noun: [], adjective: [], verb: [], adverb: [] };
@@ -162,10 +165,11 @@ export async function createBattle(
 ): Promise<{ battleId: number; snap: BattleSnapshot }> {
   const playerPool = await fetchBattlePool(playerUserId);
   const aiPool = await fetchAiPool();
-  const player = formSide(playerPool);
+  // 🤖 AI 场：每方固定 10 个单词（词池不够则有多少用多少）
+  const player = formSide(playerPool, BL.AI_TROOP_SIZE);
   // 开局不给屏障：屏障应该是靠「拼对名词/形容词」赚来的，而不是系统白送。
   // 先手碾压由布阵时的 50/50 先手投币来平衡（见 deployBattle）。
-  const enemy = formSide(aiPool);
+  const enemy = formSide(aiPool, BL.AI_TROOP_SIZE);
   for (const u of enemy.units) {
     if (!u.dead) u.shield = 0;
     // AI 降 1 级，避免新手场难度过高
