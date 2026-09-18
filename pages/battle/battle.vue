@@ -332,7 +332,7 @@ const ROLE_ZH = { noun: '名词', adjective: '形容词', verb: '动词', adverb
 const TURN_SECONDS = 30;
 
 // ===== 拼中文模式：中文义项拆解 + 归一化（与后端 acceptedAnswers 对齐）=====
-const POS_PREFIX_RE = /^(n|v|adj|adv|prep|conj|pron|num|art|int|aux)\.\s*/i;
+const POS_PREFIX_RE = /^(n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int|aux|abbr|pl)\.\s*/i;
 /** 归一化：去首尾空白、去所有空格、去尾部标点 */
 function normalizeZh(s) {
   return String(s || '')
@@ -451,6 +451,34 @@ export default {
     // 弹窗顶部展示的卡牌：拼中文→显英文单词（拼中文意思）；拼英文→显中文释义（拼英文单词）
     spellShowWord() {
       return this.isZhSpell;
+    },
+    /**
+     * 正确答案的中文展示文本（用于拼错提示）。
+     * 按「；」拿义项组（每组=一个不同释义），组内多个同义词只取第一个，
+     * 多个义项用「、」连接，如「突然的、粗鲁的、险峻的」。
+     */
+    correctZhText() {
+      const raw = String(this.spellMeaning == null ? '' : this.spellMeaning).trim();
+      if (!raw) return '';
+      // 去词性前缀 / <...> / 开头括号说明
+      let s = raw;
+      let prev = '', guard = 0;
+      while (prev !== s && guard++ < 5) { prev = s; s = s.replace(POS_PREFIX_RE, ''); }
+      s = s.replace(/<[^>]*>/g, '').trim();
+      const head = s.match(/^[（(][^）)]*[）)]\s*(.+)$/);
+      if (head && head[1]) s = head[1].trim();
+      // 按「；」切成不同释义，每组内按「，,、」取第一个同义词
+      const senses = s
+        .split(/[；;]/)
+        .map((g) => g.trim())
+        .filter(Boolean)
+        .map((g) => {
+          const first = g.split(/[，,、]/).map((x) => x.trim()).filter(Boolean)[0] || g;
+          return normalizeZh(first.replace(/[（(][^）)]*[）)]/g, ''));
+        })
+        .filter(Boolean);
+      const uniq = [...new Set(senses)];
+      return uniq.length ? uniq.join('、') : raw;
     },
     isMyGo() {
       return this.deployed && !!this.snap && !this.snap.over && this.snap.currentSide === this.mySideIdx;
@@ -1080,6 +1108,8 @@ export default {
       const typed = (this.spellInput || '').trim();
       // 拼中文：命中任一中文义项即算对；拼英文：照旧精确匹配英文单词
       const correct = this.isZhSpell ? this.matchZhAnswer(typed) : this.matchEnAnswer(typed);
+      // 拼错时先把「正确答案」告诉用户（因为下一步会关掉弹窗，来不及看）
+      if (!correct) this.showWrongAnswerTip();
       const data = {
         kind: payload.kind,
         unit_card_id: payload.unitCardId,
@@ -1088,6 +1118,26 @@ export default {
       if (payload.targetCardId != null) data.target_card_id = payload.targetCardId;
       this.spellWin = false;
       this.act(data);
+    },
+    /**
+     * 拼错提示：弹出正确的中文意思（拼英文模式同时给出英文单词）。
+     * 用 modal 而不是 toast：要显示的内容较长（多个义项），toast 会截断。
+     */
+    showWrongAnswerTip() {
+      const zh = this.correctZhText || '';
+      const en = (this.spellWord || '').trim();
+      let content = zh ? `正确意思：${zh}` : '';
+      // 拼英文模式下，用户拼的是英文，所以顺便把英文也亮一下
+      if (!this.isZhSpell && en) {
+        content = content ? `${content}\n英文：${en}` : `英文：${en}`;
+      }
+      uni.showModal({
+        title: '❌ 拼写错误',
+        content: content || '这个词没有记录释义',
+        showCancel: false,
+        confirmText: '知道了',
+        confirmColor: '#1a73e8',
+      });
     },
     // 拼英文：忽略大小写/首尾空格
     matchEnAnswer(typed) {
