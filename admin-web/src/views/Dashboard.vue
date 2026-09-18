@@ -26,13 +26,30 @@
       <div class="stat-card orange">
         <div class="label">对战总场次</div>
         <div class="value">{{ d.battles?.total ?? '-' }}</div>
-        <div class="sub">进行中 {{ d.battles?.ongoing ?? 0 }}</div>
+        <div class="sub">历史累计</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="label">真实对战中</div>
+        <div class="value">{{ d.battles?.ongoing ?? '-' }}</div>
+        <div class="sub">回合未超时</div>
       </div>
       <div class="stat-card red">
         <div class="label">未结束房间</div>
         <div class="value">{{ d.rooms?.open ?? '-' }}</div>
         <div class="sub">对战中 {{ d.rooms?.playing ?? 0 }}</div>
       </div>
+    </div>
+
+    <div class="card-block" v-if="d.battles?.stale > 0">
+      <el-alert type="warning" :closable="false" show-icon>
+        <template #title>
+          检测到 <b>{{ d.battles.stale }}</b> 局「僵尸对战」：状态仍为进行中，但回合早己超时
+        </template>
+        <div style="font-size: 13px; line-height: 1.7; margin-top: 4px">
+          原因：战斗状态仅在玩家主动操作时才落库；开了局就直接退出 App 的会永久卡在进行中。
+          它们<b>不计入</b>上面的「真实对战中」。
+        </div>
+      </el-alert>
     </div>
 
     <div class="card-block">

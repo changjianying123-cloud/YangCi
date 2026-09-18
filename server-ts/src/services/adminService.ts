@@ -423,9 +423,15 @@ export async function adminDashboard() {
     'SELECT COUNT(*) AS c FROM user_cards WHERE is_egg = 1'
   );
   const [battleRows] = await pool.execute<RowDataPacket[]>(
+    // ⚠️ battles.status='active' 不可信：
+    //    战斗状态只在玩家「主动操作」时才 saveBattle 落库，
+    //    开了局就退出 App 的会永久卡在 active（历史残留，见 memories）。
+    //    因此以 turn_deadline（回合截止毫秒）判断：只统计还有人在打的。
     `SELECT COUNT(*) AS total,
-            SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS ongoing
-     FROM battles`
+            SUM(CASE WHEN status = 'active' AND turn_deadline >= ? THEN 1 ELSE 0 END) AS ongoing,
+            SUM(CASE WHEN status = 'active' AND (turn_deadline IS NULL OR turn_deadline < ?) THEN 1 ELSE 0 END) AS stale
+     FROM battles`,
+    [Date.now(), Date.now()]
   );
   const bsr = (battleRows[0] || {}) as Record<string, unknown>;
 
@@ -458,6 +464,7 @@ export async function adminDashboard() {
     battles: {
       total: Number(bsr.total) || 0,
       ongoing: Number(bsr.ongoing) || 0,
+      stale: Number(bsr.stale) || 0,
     },
     rooms: {
       open: Number(rs.total) || 0,
