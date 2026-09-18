@@ -53,29 +53,47 @@ async function onSubmit() {
   loading.value = true;
   try {
     const user = await auth.login(form.username, form.password);
-    if (!user?.is_admin) {
-      // 登录成功但不是管理员：尝试初始化（仅当库里没有管理员时成功）
-      try {
-        await authApi.bootstrap();
-        await auth.refreshProfile();
-        ElMessage.success('已初始化管理员权限');
-      } catch {
-        auth.logout();
-        ElMessage.error('该账号无管理员权限');
-        return;
-      }
+
+    // 已具管理员权限：直接进后台
+    if (user?.isAdmin) {
+      ElMessage.success('登录成功');
+      router.replace('/dashboard');
+      return;
     }
-    ElMessage.success('登录成功');
-    router.replace('/dashboard');
+
+    // 还不是管理员：仅当库里一个管理员都没有时，bootstrap 才会成功
+    try {
+      await authApi.bootstrap();
+      await auth.refreshProfile();
+      ElMessage.success('已初始化为管理员');
+      router.replace('/dashboard');
+      return;
+    } catch {
+      // 已有管理员 —— 说明这个账号确实没权限。
+      // 注意：不能在这里 logout，否则会遮蔽真正的“无权限”提示；
+      // 且 refreshProfile 能拿到最新 isAdmin，避免字段滞后误判。
+      try {
+        const fresh = await auth.refreshProfile();
+        if (fresh?.isAdmin) {
+          ElMessage.success('登录成功');
+          router.replace('/dashboard');
+          return;
+        }
+      } catch {
+        /* 忽略：以最终提示为准 */
+      }
+      auth.logout();
+      ElMessage.error('该账号不是管理员，请使用管理员账号登录');
+    }
   } catch {
-    /* 错误提示由拦截器处理 */
+    /* 登录本身的错误提示由拦截器处理 */
   } finally {
     loading.value = false;
   }
 }
 
 async function onBootstrap() {
-  ElMessage.info('请先用要提权的账号在「登录」处输入账号密码并点击登录，系统会自动尝试初始化');
+  ElMessage.info('用要提权的账号在下方正常登录即可。仅当系统还没有任何管理员时，登录会自动完成提权；否则请让现有管理员在「用户管理」里为你开启权限。');
 }
 </script>
 

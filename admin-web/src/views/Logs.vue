@@ -69,8 +69,10 @@ const ACTION_TEXT = Object.fromEntries(actions.map((a) => [a.value, a.label]));
 const actionText = (a) => ACTION_TEXT[a] || a;
 
 function fmt(ts) {
-  if (!ts) return '-';
-  const d = new Date(ts);
+  if (ts === null || ts === undefined || ts === '') return '-';
+  const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  if (!Number.isFinite(ms)) return '-';
+  const d = new Date(ms);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }

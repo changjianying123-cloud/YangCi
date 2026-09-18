@@ -3,6 +3,19 @@ import { pool } from '../db/pool';
 import crypto from 'crypto';
 import { onlineCount } from '../ws/hub';
 
+/**
+ * 把 MySQL 的 timestamp 统一成毫秒时间戳，供前端直接 new Date(ms) 使用。
+ * mysql2 对 DATETIME/TIMESTAMP 返回的是 JS Date 对象，直接 Number() 会得到 NaN，
+ * 旧前端因此显示 “NaN-NaN-NaN”。这里在服务端一次归一化，前端无需再兼容字符串。
+ */
+function toMillis(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'number') return v;
+  const t = new Date(String(v)).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
 // ==================== 单词管理 ====================
 
 export async function adminListWords(opts: {
@@ -250,7 +263,7 @@ export async function adminListUsers(opts: {
       isAdmin: r.is_admin === 1,
       isBanned: r.is_banned === 1,
       cardCount: Number(r.card_count) || 0,
-      createdAt: r.created_at,
+      createdAt: toMillis(r.created_at),
       lastActiveAt: r.last_active_at ? Number(r.last_active_at) : null,
       recentlyActive: r.last_active_at ? now - Number(r.last_active_at) < ONLINE_WINDOW : false,
     })),
@@ -292,11 +305,14 @@ export async function adminUserDetail(userId: number) {
   );
 
   const [battleRows] = await pool.execute<RowDataPacket[]>(
+    // 用户可能作为挑战者(player)或对手(enemy)，两边都要算
     `SELECT COUNT(*) AS total,
             SUM(CASE WHEN status = 'finished' THEN 1 ELSE 0 END) AS finished,
-            SUM(CASE WHEN winner = 1 THEN 1 ELSE 0 END) AS wins
-     FROM battles WHERE player_user_id = ?`,
-    [userId]
+            SUM(CASE WHEN finished_at IS NOT NULL AND
+                          ((player_user_id = ? AND winner = 1) OR
+                           (enemy_user_id  = ? AND winner = 0)) THEN 1 ELSE 0 END) AS wins
+     FROM battles WHERE player_user_id = ? OR enemy_user_id = ?`,
+    [userId, userId, userId, userId]
   );
   const bs = (battleRows[0] || {}) as Record<string, unknown>;
 
@@ -309,7 +325,7 @@ export async function adminUserDetail(userId: number) {
     coins: Number(u.coins) || 0,
     isAdmin: u.is_admin === 1,
     isBanned: u.is_banned === 1,
-    createdAt: u.created_at,
+    createdAt: toMillis(u.created_at),
     lastActiveAt: u.last_active_at ? Number(u.last_active_at) : null,
     cards: {
       total: Number(cs.total) || 0,

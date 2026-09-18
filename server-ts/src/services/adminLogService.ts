@@ -2,7 +2,7 @@ import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { pool } from '../db/pool';
 
 /**
- * 管理员操作日志：任何高危写操作（改金�?封禁/改词/删词等）都记一条�? * 便于事后追溯「谁在什么时候改了什么」�? */
+ * 管理员操作日志：任何高危写操作（改金�?封禁/改词/删词等）都记一条�? * 便于事后追溯「谁在什么时候改了什么」�? */
 export async function logAdminAction(
   adminId: number,
   action: string,
@@ -77,7 +77,7 @@ export async function listAdminLogs(opts: {
       targetId: r.target_id,
       detail: r.detail,
       ip: r.ip,
-      createdAt: r.created_at,
+      createdAt: r.created_at instanceof Date ? r.created_at.getTime() : new Date(String(r.created_at)).getTime(),
     })),
     total,
     page,

@@ -142,8 +142,11 @@ const levelText = computed(() => {
 });
 
 function fmt(ts, full = false) {
-  if (!ts) return '-';
-  const d = new Date(Number(ts));
+  if (ts === null || ts === undefined || ts === '') return '-';
+  // 后端已统一返回毫秒数；同时兼容 ISO 字符串，避免再次出现 NaN
+  const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  if (!Number.isFinite(ms)) return '-';
+  const d = new Date(ms);
   const pad = (n) => String(n).padStart(2, '0');
   const base = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   return full ? `${base} ${pad(d.getHours())}:${pad(d.getMinutes())}` : base;

@@ -159,8 +159,18 @@ export async function updateUserProfile(
 
 export async function getUserById(userId: number) {
   const [rows] = await pool.execute<UserRow[]>(
-    'SELECT id, openid, username, nickname, avatar_url, created_at FROM users WHERE id = ?',
+    // 注意：必须带上 is_admin / is_banned，后台登录页要靠它判断权限
+    'SELECT id, openid, username, nickname, avatar_url, coins, is_admin, is_banned, created_at FROM users WHERE id = ?',
     [userId]
   );
-  return rows[0] || null;
+  const row = rows[0] as (UserRow & { is_admin?: number; is_banned?: number }) | undefined;
+  if (!row) return null;
+  // 归一化为布尔，前端只认 isAdmin / isBanned
+  return {
+    ...row,
+    is_admin: undefined,
+    is_banned: undefined,
+    isAdmin: row.is_admin === 1,
+    isBanned: row.is_banned === 1,
+  };
 }
