@@ -214,7 +214,7 @@ export default {
       }
       uni.showModal({
         title: '恢复饥饿',
-        content: `消耗 10 💰 恢复「${this.card.word}」的饥饿状态？恢复后即可开始拼写喂养，还需拼对 3 次才算喂养成功。`,
+        content: `消耗 10 💰 恢复「${this.card.word}」的饥饿状态？恢复后即可开始拼写喂养，还需拼对 ${this.spellRequired} 次才算喂养成功（可在「我的」里调整）。`,
         success: async (modalRes) => {
           if (!modalRes.confirm) return;
           this.recovering = true;
@@ -260,9 +260,8 @@ export default {
         const res = await feedCard(this.cardId, { spell_correct: ok });
 
         if (!ok) {
-          // 拼写错误
+          // 拼写错误（不重置自定义的 required，保持用户设置）
           this.spellCount = 0;
-          this.spellRequired = 3;
           const penaltyMsg = res.data && res.data.coinPenalty > 0 ? `扣除 ${res.data.coinPenalty} 💰` : '';
           uni.showToast({ title: `拼写错误${penaltyMsg ? '，' + penaltyMsg : ''}，再试一次`, icon: 'none' });
           await this.loadCard();

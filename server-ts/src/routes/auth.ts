@@ -6,6 +6,7 @@ import {
   getUserById,
   updateUserProfile,
 } from '../services/authService';
+import { getRepeatSettings, updateRepeatSettings } from '../services/repeatSettings';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
 import { config } from '../config';
@@ -72,7 +73,32 @@ router.post('/logout', (_req: Request, res: Response) => {
 router.get('/profile', authMiddleware, async (req: Request, res: Response) => {
   const user = await getUserById(req.userId!);
   if (!user) return fail(res, 404, '用户不存在');
-  ok(res, user);
+  // 带上「重复拼写次数」设置，前台「我的」页面要用
+  const repeat = await getRepeatSettings(req.userId!);
+  ok(res, { ...user, repeat });
+});
+
+/**
+ * 更新重复拼写次数设置
+ * body: { catchRepeat?: number|null, feedRepeat?: number|null }
+ * 传 null = 恢复默认
+ */
+router.put('/repeat-settings', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const patch: { catchRepeat?: number | null; feedRepeat?: number | null } = {};
+    if (body.catchRepeat !== undefined) {
+      patch.catchRepeat = body.catchRepeat === null || body.catchRepeat === '' ? null : Number(body.catchRepeat);
+    }
+    if (body.feedRepeat !== undefined) {
+      patch.feedRepeat = body.feedRepeat === null || body.feedRepeat === '' ? null : Number(body.feedRepeat);
+    }
+    if (!Object.keys(patch).length) return fail(res, 400, '没有要更新的设置');
+    const repeat = await updateRepeatSettings(req.userId!, patch);
+    ok(res, repeat, '设置已保存');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '保存失败');
+  }
 });
 
 router.put('/profile', authMiddleware, async (req: Request, res: Response) => {

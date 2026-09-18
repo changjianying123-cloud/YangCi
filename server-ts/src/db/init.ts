@@ -247,6 +247,9 @@ export async function initDatabase() {
     `ALTER TABLE users ADD COLUMN is_banned TINYINT(1) NOT NULL DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN last_active_at BIGINT DEFAULT NULL`,
     `ALTER TABLE users ADD INDEX idx_last_active (last_active_at)`,
+    // 用户自定义「重复拼写次数」覆盖值：NULL = 用全局默认
+    `ALTER TABLE users ADD COLUMN catch_repeat INT DEFAULT NULL`,
+    `ALTER TABLE users ADD COLUMN feed_repeat INT DEFAULT NULL`,
   ];
   // users 迁移执行完后，顺带补一次唯一索引（老表可能已有重复 null，需容错）
   try {

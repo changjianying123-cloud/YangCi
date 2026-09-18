@@ -14,13 +14,13 @@
     <!-- 当前阶段提示 -->
     <view class="stage-hint">
       <view class="stage-tag" v-if="phase === 'spelling'">
-        <text>✏️ 拼写收服 · {{ correctCount }}/6</text>
+        <text>✏️ 拼写收服 · {{ correctCount }}/{{ requiredCorrect }}</text>
       </view>
       <view class="stage-tag review-stage" v-else-if="phase === 'review'">
         <text>🔄 滚动检测 · {{ reviewIndex + 1 }} / {{ reviewPool.length }}</text>
       </view>
       <view class="stage-tag fail-stage" v-else-if="phase === 'failBack'">
-        <text>😅 补考 · 重新拼写 6 次</text>
+        <text>😅 补考 · 重新拼写 {{ requiredCorrect }} 次</text>
       </view>
     </view>
 
@@ -46,7 +46,7 @@
         <text class="meaning big">{{ reviewWord.meaning }}</text>
       </view>
 
-      <!-- 补考：回顾失败的词要重拼 6 次 -->
+      <!-- 补考：回顾失败的词要重新拼满 requiredCorrect 次 -->
       <view v-else-if="phase === 'failBack'">
         <text class="meaning">{{ currentWord.meaning }}</text>
         <text class="phonetic" v-if="currentWord.phonetic">{{ currentWord.phonetic }}</text>
@@ -111,6 +111,8 @@ export default {
       // 当前在拼写的单词
       currentWord: {},
       currentCorrectCount: 0,
+      // 收服需要拼对的次数（来自后端，用户可在「我的」自定义；默认 6）
+      requiredCorrect: 6,
       totalCoinReward: 0,
       bonus: 0,
       caughtCount: 0,
@@ -217,6 +219,8 @@ export default {
       }
       if (res && res.data) {
         this.currentWord = res.data;
+        // 收服次数以后端为准（用户可在「我的」自定义）
+        if (res.data.requiredCorrect) this.requiredCorrect = res.data.requiredCorrect;
         this.currentCorrectCount = 0;
         this.inputValue = '';
         this.showFullWord = false;
@@ -265,9 +269,9 @@ export default {
 
       if (ok) {
         this.currentCorrectCount += 1;
-        uni.showToast({ title: `正确 (${this.currentCorrectCount}/6)`, icon: 'none' });
+        uni.showToast({ title: `正确 (${this.currentCorrectCount}/${this.requiredCorrect})`, icon: 'none' });
 
-        if (this.currentCorrectCount >= 6) {
+        if (this.currentCorrectCount >= this.requiredCorrect) {
           if (this.phase === 'failBack') {
             // 补考通过 → 把单词放回回顾池，继续滚动检测
             this.reviewPool.push({ ...this.currentWord });
@@ -275,7 +279,7 @@ export default {
             this.phase = 'spelling';
             this.startReview();
           } else {
-            // 正常拼满 6 次 → 本地判定入池（暂不入库）
+            // 正常拼满 requiredCorrect 次 → 本地判定入池（暂不入库）
             await this.doCaptureWord();
           }
         }
@@ -289,7 +293,7 @@ export default {
       this.submitting = false;
       this.refocusInput();
     },
-    // 拼满 6 次：只做本地判定，校验可收服后加入待收服池（暂不入库、不发币）
+    // 拼满 requiredCorrect 次：只做本地判定，校验可收服后加入待收服池（暂不入库、不发币）
     async doCaptureWord() {
       try {
         // 校验该词当前仍可收服（避免本地缓存里已收服/遗弃的词残留）
@@ -369,7 +373,7 @@ export default {
           }
         }
       } else {
-        // 回顾失败 → 这个单词踢出池子，重新拼 6 次
+        // 回顾失败 → 这个单词踢出池子，重新拼满 requiredCorrect 次
         const wordId = this.reviewWord.id;
         this.failBackWordId = wordId;
         // 从池中移除，并同步本地缓存
@@ -380,7 +384,7 @@ export default {
         this.currentWord = { ...this.reviewWord };
         this.currentCorrectCount = 0;
         this.phase = 'failBack';
-        uni.showToast({ title: '😅 检测失败，重新拼 6 次', icon: 'none' });
+        uni.showToast({ title: `😅 检测失败，重新拼 ${this.requiredCorrect} 次`, icon: 'none' });
       }
       // 同 handleSpellResult：先解除禁用再聚焦
       this.submitting = false;

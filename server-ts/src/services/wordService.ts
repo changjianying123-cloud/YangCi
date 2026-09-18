@@ -4,6 +4,7 @@ import { pool } from '../db/pool';
 import { UserCardRow, WordRow } from '../types';
 import { buildAudioUrl, nextFeedSchedule } from '../utils/cardStatus';
 import { countMnemonics } from './mnemonicService';
+import { getUserCatchRepeat } from './repeatSettings';
 
 export async function getRandomWord(userId: number, bookCode: string) {
   const [rows] = await pool.execute<WordRow[]>(
@@ -29,6 +30,8 @@ export async function getRandomWord(userId: number, bookCode: string) {
     bookCode: word.book_code,
     // 有无助记 → 前端决定要不要显示「查看助记」入口
     mnemonicCount: await countMnemonics(word.id),
+    // 该用户实际生效的收服重复次数（可在「我的」自定义）
+    requiredCorrect: await getUserCatchRepeat(userId),
   };
 }
 
@@ -96,7 +99,8 @@ export async function catchWord(userId: number, wordId: number, correctCount: nu
 }
 
 export async function checkCatchProgress(userId: number, wordId: number, correctCount: number) {
-  const required = config.card.catchRequiredCorrect;
+  // 用户可在「我的」里自定义收服重复次数，未设置则用全局默认
+  const required = await getUserCatchRepeat(userId);
   if (correctCount < required) {
     return { captured: false, count: correctCount, required };
   }

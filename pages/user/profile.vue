@@ -21,6 +21,41 @@
       <text class="logout-btn" @click="confirmLogout">退出登录</text>
     </view>
 
+    <!-- 重复拼写次数设置 -->
+    <view class="section">
+      <text class="section-title">练习强度</text>
+      <text class="section-sub">觉得重复太多或太少？可自定义（默认：收服 {{ repeat.defaultCatchRepeat }} 次 / 喂养 {{ repeat.defaultFeedRepeat }} 次）</text>
+
+      <view class="stepper-row">
+        <view class="stepper-label">
+          <text class="stepper-name">收服单词</text>
+          <text class="stepper-desc">拼对几次才算收服</text>
+        </view>
+        <view class="stepper">
+          <text class="stepper-btn" :class="{ disabled: catchRepeat <= repeat.catchMin }" @click="stepCatch(-1)">−</text>
+          <text class="stepper-value">{{ catchRepeat }}</text>
+          <text class="stepper-btn" :class="{ disabled: catchRepeat >= repeat.catchMax }" @click="stepCatch(1)">＋</text>
+        </view>
+      </view>
+
+      <view class="stepper-row">
+        <view class="stepper-label">
+          <text class="stepper-name">喂养单词</text>
+          <text class="stepper-desc">拼对几次才算喂一次</text>
+        </view>
+        <view class="stepper">
+          <text class="stepper-btn" :class="{ disabled: feedRepeat <= repeat.feedMin }" @click="stepFeed(-1)">−</text>
+          <text class="stepper-value">{{ feedRepeat }}</text>
+          <text class="stepper-btn" :class="{ disabled: feedRepeat >= repeat.feedMax }" @click="stepFeed(1)">＋</text>
+        </view>
+      </view>
+
+      <view class="reset-row">
+        <text class="reset-btn" @click="resetRepeat">恢复默认</text>
+        <text class="reset-tip" v-if="isRepeatDefault">当前已是默认</text>
+      </view>
+    </view>
+
     <view class="stats-grid">
       <view class="stat-item">
         <text class="stat-num">{{ stats.totalCards || 0 }}</text>
@@ -71,7 +106,7 @@
 <script>
 import store from '@/store/index.js';
 import { getStatOverview } from '@/api/stat.js';
-import { getProfile, updateProfile } from '@/api/auth.js';
+import { getProfile, updateProfile, updateRepeatSettings } from '@/api/auth.js';
 import AppTabBar from '@/components/AppTabBar/AppTabBar.vue';
 
 export default {
@@ -82,11 +117,24 @@ export default {
       stats: {},
       nickname: '',
       avatarUrl: '',
+      repeat: { catchRepeat: 6, feedRepeat: 3, defaultCatchRepeat: 6, defaultFeedRepeat: 3, catchMin: 1, catchMax: 20, feedMin: 1, feedMax: 10 },
     };
   },
   computed: {
     avatarText() {
       return (this.nickname || '?').slice(0, 1);
+    },
+    catchRepeat() {
+      return Number(this.repeat.catchRepeat) || this.repeat.defaultCatchRepeat;
+    },
+    feedRepeat() {
+      return Number(this.repeat.feedRepeat) || this.repeat.defaultFeedRepeat;
+    },
+    isRepeatDefault() {
+      return (
+        this.catchRepeat === this.repeat.defaultCatchRepeat &&
+        this.feedRepeat === this.repeat.defaultFeedRepeat
+      );
     },
     maxFeedCount() {
       const feeds = this.stats.recentFeeds || [];
@@ -104,6 +152,7 @@ export default {
         this.user = profileRes.data;
         this.nickname = profileRes.data.nickname || '';
         this.avatarUrl = profileRes.data.avatar_url || '';
+        if (profileRes.data.repeat) this.repeat = profileRes.data.repeat;
       }
       const statRes = await getStatOverview();
       if (statRes.data) this.stats = statRes.data;
@@ -156,6 +205,48 @@ export default {
         store.state.user = res.data;
         uni.setStorageSync('yangci_user', res.data);
       }
+    },
+    // ── 重复拼写次数 ──
+    stepCatch(delta) {
+      const next = Math.min(
+        this.repeat.catchMax,
+        Math.max(this.repeat.catchMin, this.catchRepeat + delta)
+      );
+      if (next === this.catchRepeat) return;
+      this.repeat = { ...this.repeat, catchRepeat: next };
+      this.saveRepeat({ catchRepeat: next });
+    },
+    stepFeed(delta) {
+      const next = Math.min(
+        this.repeat.feedMax,
+        Math.max(this.repeat.feedMin, this.feedRepeat + delta)
+      );
+      if (next === this.feedRepeat) return;
+      this.repeat = { ...this.repeat, feedRepeat: next };
+      this.saveRepeat({ feedRepeat: next });
+    },
+    async saveRepeat(patch) {
+      try {
+        const res = await updateRepeatSettings(patch);
+        if (res.data) this.repeat = res.data;
+      } catch (e) {
+        // 保存失败回滚到服务端设置
+        await this.reloadRepeat();
+      }
+    },
+    async reloadRepeat() {
+      const profileRes = await getProfile();
+      if (profileRes.data && profileRes.data.repeat) this.repeat = profileRes.data.repeat;
+    },
+    resetRepeat() {
+      if (this.isRepeatDefault) return;
+      uni.showModal({
+        title: '恢复默认',
+        content: `收服恢复为 ${this.repeat.defaultCatchRepeat} 次、喂养恢复为 ${this.repeat.defaultFeedRepeat} 次？`,
+        success: (r) => {
+          if (r.confirm) this.saveRepeat({ catchRepeat: null, feedRepeat: null });
+        },
+      });
     },
   },
 };
@@ -383,5 +474,90 @@ export default {
   font-size: 20rpx;
   color: #999;
   margin-top: 8rpx;
+}
+
+/* ── 练习强度设置 ── */
+.section-sub {
+  display: block;
+  font-size: 22rpx;
+  color: #999;
+  line-height: 1.6;
+  margin-bottom: 20rpx;
+}
+
+.stepper-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.stepper-label {
+  display: flex;
+  flex-direction: column;
+}
+
+.stepper-name {
+  font-size: 28rpx;
+  color: #333;
+}
+
+.stepper-desc {
+  font-size: 22rpx;
+  color: #999;
+  margin-top: 4rpx;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.stepper-btn {
+  width: 56rpx;
+  height: 56rpx;
+  line-height: 56rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #f0f4ff;
+  color: #4a90e2;
+  font-size: 32rpx;
+  font-weight: bold;
+}
+
+.stepper-btn.disabled {
+  background: #f5f5f5;
+  color: #ccc;
+}
+
+.stepper-value {
+  min-width: 72rpx;
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #4a90e2;
+}
+
+.reset-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16rpx;
+  padding-top: 20rpx;
+}
+
+.reset-btn {
+  font-size: 24rpx;
+  color: #4a90e2;
+  padding: 8rpx 24rpx;
+  border: 1rpx solid #4a90e2;
+  border-radius: 24rpx;
+}
+
+.reset-tip {
+  font-size: 22rpx;
+  color: #bbb;
 }
 </style>

@@ -63,6 +63,14 @@ export function updateProfile(data) {
   return request('/auth/profile', { method: 'PUT', data });
 }
 
+/**
+ * 更新「重复拼写次数」设置
+ * @param {{catchRepeat?: number|null, feedRepeat?: number|null}} data 传 null = 恢复默认
+ */
+export function updateRepeatSettings(data) {
+  return request('/auth/repeat-settings', { method: 'PUT', data });
+}
+
 export function logout() {
   return request('/auth/logout', { method: 'POST' });
 }

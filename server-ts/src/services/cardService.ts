@@ -17,6 +17,7 @@ import {
 } from '../utils/cardStatus';
 import { cleanMeaning, POS_PREFIX_RE } from '../utils/meaning';
 import { countMnemonics } from './mnemonicService';
+import { getUserFeedRepeat } from './repeatSettings';
 
 async function getUserCoins(userId: number): Promise<number> {
   const [rows] = await pool.execute<UserRow[]>(
@@ -26,7 +27,9 @@ async function getUserCoins(userId: number): Promise<number> {
   return rows[0]?.coins ?? 0;
 }
 
-function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
+function toCardDTO(row: UserCardRow, userCoins: number = 0, feedRepeat?: number): CardDTO {
+  // 用户自定义喂养重复次数；不传则用全局默认
+  const reqFeeds = Math.max(1, feedRepeat || config.card.feedSpellCount || 3);
   const now = Date.now();
   const isEgg = row.is_egg === 1;
   const status = computeCardStatus(
@@ -72,10 +75,10 @@ function toCardDTO(row: UserCardRow, userCoins: number = 0): CardDTO {
     status,
     canFeed,
     canPlay,
-    feedSpellCount: Math.max(0, Math.min(row.feed_spell_count || 0, config.card.feedSpellCount || 3)),
-    feedSpellRequired: config.card.feedSpellCount || 3,
+    feedSpellCount: Math.max(0, Math.min(row.feed_spell_count || 0, reqFeeds)),
+    feedSpellRequired: reqFeeds,
     // 还剩几次拼写（倒着数：3 → 2 → 1）
-    feedSpellRemaining: Math.max(0, (config.card.feedSpellCount || 3) - (row.feed_spell_count || 0)),
+    feedSpellRemaining: Math.max(0, reqFeeds - (row.feed_spell_count || 0)),
     nextFeedIn: remedialInfo.hasRemedial ? remedialInfo.humanReadable : windowInfo.humanReadable,
     mood,
     moodScore,
@@ -176,7 +179,8 @@ export async function listUserCards(userId: number): Promise<CardDTO[]> {
   );
   await processHungerDowngrade(rows, now);
   const userCoins = await getUserCoins(userId);
-  return rows.map((r) => toCardDTO(r, userCoins));
+  const feedRepeat = await getUserFeedRepeat(userId);
+  return rows.map((r) => toCardDTO(r, userCoins, feedRepeat));
 }
 
 export async function getCardDetail(userId: number, cardId: number): Promise<CardDTO | null> {
@@ -190,7 +194,8 @@ export async function getCardDetail(userId: number, cardId: number): Promise<Car
   );
   if (!rows[0]) return null;
   const userCoins = await getUserCoins(userId);
-  const dto = toCardDTO(rows[0], userCoins);
+  const feedRepeat = await getUserFeedRepeat(userId);
+  const dto = toCardDTO(rows[0], userCoins, feedRepeat);
   // 喂养页要显示「查看助记」入口，这里补上助记条数（列表接口不带，避免 N+1）
   (dto as CardDTO & { mnemonicCount?: number }).mnemonicCount = await countMnemonics(rows[0].word_id);
   return dto;
@@ -236,9 +241,10 @@ export async function feedCard(userId: number, cardId: number, spellCorrect: boo
   // 饥饿状态（且不在喂养窗口内）不允许直接喂养，必须先调 recoverHunger
   const feedingInHunger = false;
 
-  // 本轮喂养的拼写次数要求：健康喂养与「拼错后补考」统一，都是 3 次，
+  // 本轮喂养的拼写次数要求：健康喂养与「拼错后补考」统一；
+  // 次数可由用户在「我的」里自定义（NULL 则用全局默认），
   // 避免中途 required 跳变导致前端进度出现 1→2→3 这种反过来的显示
-  const requiredFeeds = Math.max(1, config.card.feedSpellCount || 3);
+  const requiredFeeds = await getUserFeedRepeat(userId);
   // 已拼对次数（拼错会归零，所以这里就是本轮进度）
   const alreadyCorrect = Math.max(0, Math.min(row.feed_spell_count || 0, requiredFeeds));
 
@@ -435,7 +441,7 @@ export async function recoverHunger(userId: number, cardId: number) {
     [now, now + config.card.hungerWindowMs, cardId]
   );
 
-  const required = Math.max(1, config.card.feedSpellCount || 3);
+  const required = await getUserFeedRepeat(userId);
   const alreadyCorrect = Math.max(0, Math.min(row.feed_spell_count || 0, required));
 
   const card = await getCardDetail(userId, cardId);
