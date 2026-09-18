@@ -89,8 +89,7 @@ export default {
       return this.flip ? 1 : 0;
     },
     revivableIds() {
-      // 与后端 canRevive 一致：阵亡 + 未发动过技能 + 本局未复活过 + 【该单词从来没被拼写过】
-      return this.side.units.filter((x) => x.dead && !x.usedSkill && !x.revived && x.neverSpelled === true).map((x) => x.cardId);
+      return this.side.units.filter((x) => x.dead && !x.usedSkill && !x.revived).map((x) => x.cardId);
     },
   },
   methods: {
