@@ -319,8 +319,8 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
     reason: '',
     deployed: true,
     mode: 'gold' as const,
-    // 金币场：给中文、拼英文（同「喂养」）
-    spellMode: 'en-spell' as const,
+    // 金币场：显示英文、拼中文意思（同「拼中文」模式；与 AI 场拼中文一致）
+    spellMode: 'zh-spell' as const,
     bet: room.bet,
     roomId: room.id,
     player: { userId: o, nickname: n0, units: player.units, queue: [...player.queue], deployed: true },
@@ -411,10 +411,26 @@ async function settleRoomBattle(room: BattleRoomRow, winnerId: number | null, re
 /** 判负：winner=对方，结算底池 */
 export async function forfeitRoom(room: BattleRoomRow, loserId: number, why: string): Promise<void> {
   if (room.status === 'finished' || room.status === 'cancelled') return;
-  const winnerId = loserId === room.owner_user_id ? room.guest_user_id : room.owner_user_id;
-  if (!winnerId) return;
   const ref = await loadRoom(room.id);
   if (!ref || ref.status === 'finished') return; // 幂等
+
+  // ⚠️ 若对局已经自然结束，必须按**真实胜负**结算，不能被“退出/断线”翻盘。
+  // （否则赢家先赢下对局、随后退出/断线，就会被判负、底池发给输家）
+  let winnerId = loserId === room.owner_user_id ? room.guest_user_id : room.owner_user_id;
+  let reason = why;
+  if (room.battle_id) {
+    try {
+      const snap0 = await core.loadBattle(room.battle_id);
+      if (snap0 && snap0.over && (snap0.winner === 0 || snap0.winner === 1)) {
+        const realWinner = snap0.winner === 0 ? room.owner_user_id : room.guest_user_id;
+        if (realWinner) {
+          winnerId = realWinner;
+          reason = snap0.reason || '对局已结束';
+        }
+      }
+    } catch { /* ignore，退回默认判负逻辑 */ }
+  }
+  if (!winnerId) return;
 
   const pot = Number(room.bet) * 2;
   // 只有已扣押才发奖
@@ -431,7 +447,7 @@ export async function forfeitRoom(room: BattleRoomRow, loserId: number, why: str
       const snap = await core.loadBattle(room.battle_id);
       if (snap && !snap.over) {
         snap.over = true;
-        snap.winner = loserId === room.owner_user_id ? 1 : 0;
+        snap.winner = winnerId === room.owner_user_id ? 0 : 1;
         snap.reason = `对手${why}，你获胜`;
         snap.log.push(`🏳️ ${await getNickname(loserId)} ${why}，判负。`);
         await core.saveBattle(room.battle_id, snap);
@@ -442,7 +458,7 @@ export async function forfeitRoom(room: BattleRoomRow, loserId: number, why: str
   }
   const winnerName = await getNickname(winnerId);
   pushToUser(winnerId, { type: 'room_finished', data: { roomId: room.id, win: true, pot, reason: `对手${why}`, battleId: room.battle_id } });
-  pushToUser(loserId, { type: 'room_finished', data: { roomId: room.id, win: false, pot: 0, reason: why, battleId: room.battle_id } });
+  pushToUser(loserId, { type: 'room_finished', data: { roomId: room.id, win: false, pot: 0, reason: winnerId === loserId ? reason : why, battleId: room.battle_id } });
   broadcastAll({ type: 'rooms_changed', data: {} });
   void winnerName;
 }

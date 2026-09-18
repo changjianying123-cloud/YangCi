@@ -1030,7 +1030,8 @@ export default {
           const beforeLen = ((this.snap && this.snap.log) || []).length;
           const newLogs = (s.log || []).slice(beforeLen);
           this.snap = s;
-          // 只对敌方日志吐司，避免重复提示我方动作
+          // 只对敌方日志吐司，避免重复提示我方动作；且**只在对面的回合**才提示
+          //（自己回合不弹对方行动，免得玩家以为那是自己的动作）
           const foeLogs = newLogs.filter((l) => {
             const s = String(l);
             if (this.isGold) {
@@ -1040,7 +1041,9 @@ export default {
             }
             return s.indexOf('🤖') >= 0;
           });
-          if (foeLogs.length) this.toastAction(foeLogs, true);
+          // 当前回合是否属于对手（server 快照里 currentSide 就是行动方）
+          const isFoeTurn = s.currentSide !== this.mySideIdx && !s.over;
+          if (foeLogs.length && isFoeTurn) this.toastAction(foeLogs, true);
           // 只在“回合真的变了”时重建倒计时，避免轮询把秒数刷回 30
           if (changed) this.syncTimerFromSnap();
         }
@@ -1175,19 +1178,18 @@ export default {
         if (res && res.data && res.data.snap) {
           const snap = res.data.snap;
           this.applySnap(snap);
-          // 行动结果吐司：把本次新增日志拆成「我方动作」和「敌方反击」分别提示
+          // 行动结果吐司：**只提示自己的动作**。
+          // 对方回合才有对方的行动（由 softPoll 在对面的回合提示），
+          // 自己回合不弹对方反击，免得玩家以为那是自己的行动。
           const newLogs = (snap.log || []).slice(beforeLogs.length);
-          let myLogs, foeLogs;
+          let myLogs;
           if (this.isGold) {
             const myName = (this.me && this.me.nickname) || '';
             myLogs = newLogs.filter((l) => !!myName && String(l).indexOf(myName) >= 0);
-            foeLogs = newLogs.filter((l) => !myName || String(l).indexOf(myName) < 0);
           } else {
             myLogs = newLogs.filter((l) => String(l).indexOf('🤖') < 0);
-            foeLogs = newLogs.filter((l) => String(l).indexOf('🤖') >= 0);
           }
           if (myLogs.length) this.toastAction(myLogs, false);
-          if (foeLogs.length) setTimeout(() => this.toastAction(foeLogs, true), 1200);
         } else if (res && res.code && res.code !== 200) this.msgToast(res.msg || '操作失败');
       } catch (e) {
         const m = (e && e.msg) || '操作失败';
