@@ -165,11 +165,12 @@ export interface BattleSnapshot {
   bet?: number;             // 金币场押注金额（每方押注，赢家拿走 2×bet）
   roomId?: number;          // 金币场「房间」ID（房间制时结算交给 battleRoomService）
   /**
-   * 拼写卡牌的展示方式：
-   *  - 'en'（默认）：显示英文单词，看着拼（新手友好）
-   *  - 'zh'：只显示中文释义，凭记忆拼写英文（金币场固定用这个）
+   * 拼写模式（决定弹窗给什么提示、要拼什么）：
+   *  - 'en-spell'（默认）：给出英文单词卡牌，拼写英文（同「喂养」）
+   *  - 'zh-spell'：给出英文单词卡牌，拼写任一中文意思即可（同「玩耍」的英译汉）
+   *  - 'zh'（兼容旧值，等同 'en-spell'）
    */
-  display?: 'en' | 'zh';
+  spellMode?: 'en-spell' | 'zh-spell';
   player: BattleSide;
   enemy: BattleSide;
   log: string[];

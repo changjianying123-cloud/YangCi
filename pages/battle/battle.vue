@@ -163,7 +163,7 @@
           <view class="mode-card" @click="onStart">
             <text class="mode-icon">🥚</text>
             <text class="mode-name">新手场</text>
-            <text class="mode-desc">挑战 AI · {{ rookieDisplay === 'zh' ? '只显中文' : '显示英文' }} · 免费练习</text>
+            <text class="mode-desc">挑战 AI · {{ rookieSpellMode === 'zh-spell' ? '拼中文' : '拼英文' }} · 免费练习</text>
           </view>
           <view class="mode-card gold" @click="enterGold">
             <text class="mode-icon">💰</text>
@@ -172,17 +172,17 @@
           </view>
         </view>
 
-        <!-- 新手场：拼写展示方式 -->
+        <!-- 新手场：拼写模式 -->
         <view class="display-toggle">
-          <text class="dt-label">拼写卡牌显示</text>
+          <text class="dt-label">拼写模式</text>
           <view class="dt-opts">
-            <text class="dt-opt" :class="{ on: rookieDisplay === 'en' }" @click="rookieDisplay = 'en'">显示英文</text>
-            <text class="dt-opt" :class="{ on: rookieDisplay === 'zh' }" @click="rookieDisplay = 'zh'">只显中文（拼英文）</text>
+            <text class="dt-opt" :class="{ on: rookieSpellMode === 'zh-spell' }" @click="rookieSpellMode = 'zh-spell'">拼中文</text>
+            <text class="dt-opt" :class="{ on: rookieSpellMode === 'en-spell' }" @click="rookieSpellMode = 'en-spell'">拼英文</text>
           </view>
           <text class="dt-tip">
-            {{ rookieDisplay === 'en'
-              ? '👀 看着英文单词拼写，适合新手熟悉玩法'
-              : '🀄 只给中文释义，凭记忆拼写出英文才能出招' }}
+            {{ rookieSpellMode === 'zh-spell'
+              ? '🀄 看着英文单词，拼写它的任一中文意思即可出招（同「玩耍」）'
+              : '🔤 看着中文释义，拼写出对应的英文单词才能出招（同「喂养」）' }}
           </text>
         </view>
         <text v-if="msg" class="lobby-msg">{{ msg }}</text>
@@ -308,10 +308,11 @@
         <view class="spell-panel">
           <text class="sp-title">{{ spellTitle }}</text>
           <view class="sp-mean">
-            <text v-if="!zhOnly" class="sp-w">{{ spellWord }}</text>
-            <text class="sp-zh">{{ spellMeaning }}</text>
+            <text v-if="spellShowWord" class="sp-w">{{ spellWord }}</text>
+            <text v-if="!spellShowWord" class="sp-zh">{{ spellMeaning }}</text>
           </view>
-          <input class="sp-input" v-model="spellInput" :placeholder="zhOnly ? '凭记忆拼写英文…' : '拼写提示：' + spellHint" focus />
+          <input class="sp-input" v-model="spellInput" :placeholder="isZhSpell ? '拼写它的中文意思…' : '拼写英文单词…'" focus />
+          <text class="sp-mode-tip">{{ isZhSpell ? '🀄 拼中文：任一个意思对了就算对' : '🔤 拼英文：拼出对应的英文单词' }}</text>
           <view class="sp-btns">
             <button class="sp-cancel" @click="spellWin = false">取消</button>
             <button class="sp-go" :disabled="!spellInput.trim()" @click="commitSpell">发动</button>
@@ -330,6 +331,46 @@ import SideUnits from './side.vue';
 const ROLE_ZH = { noun: '名词', adjective: '形容词', verb: '动词', adverb: '副词' };
 const TURN_SECONDS = 30;
 
+// ===== 拼中文模式：中文义项拆解 + 归一化（与后端 acceptedAnswers 对齐）=====
+const POS_PREFIX_RE = /^(n|v|adj|adv|prep|conj|pron|num|art|int|aux)\.\s*/i;
+/** 归一化：去首尾空白、去所有空格、去尾部标点 */
+function normalizeZh(s) {
+  return String(s || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[。.，,、；;：:！!？?~～]+$/g, '')
+    .trim();
+}
+/** 把一个单词的释义拆成所有可接受的中文答案（归一化后） */
+function zhAnswersOf(meaning) {
+  let s = String(meaning == null ? '' : meaning).trim();
+  if (!s) return [];
+  // 去词性前缀（可叠加）
+  let prev = '';
+  let guard = 0;
+  while (prev !== s && guard++ < 5) { prev = s; s = s.replace(POS_PREFIX_RE, ''); }
+  // 去 <...> 语域标注
+  s = s.replace(/<[^>]*>/g, '').trim();
+  // 去开头的括号说明
+  const head = s.match(/^[（(][^）)]*[）)]\s*(.+)$/);
+  if (head && head[1]) s = head[1].trim();
+
+  const out = new Set();
+  const push = (x) => { const n = normalizeZh(x); if (n) out.add(n); };
+  push(s);
+  // 按中文/英文逗号、顿号、分号拆义项组
+  const groups = s.split(/[；;]/).map((x) => x.trim()).filter(Boolean);
+  for (const g of groups) {
+    push(g);
+    for (const part of g.split(/[，,、]/)) {
+      push(part);
+      // 去「（补充说明）」后的主干也当一个答案
+      push(part.replace(/[（(][^）)]*[）)]/g, ''));
+    }
+  }
+  return [...out];
+}
+
 export default {
   components: { SideUnits },
   data() {
@@ -338,8 +379,8 @@ export default {
       snap: null,
       starting: false,
       mode: '',        // ''=未选 | 'gold'=金币场（新手场即 onStart 直接开）
-      // 新手场拼写展示：'en'=显示英文看着拼（默认）/ 'zh'=只给中文，凭记忆拼英文
-      rookieDisplay: 'en',
+      // 新手场拼写模式：'zh-spell'=拼中文（同玩耍英译汉）/ 'en-spell'=拼英文（同喂养）
+      rookieSpellMode: 'zh-spell',
       bet: 10,          // 金币场押注金额
       betOptions: [10, 30, 50, 100, 200],
       // ===== 新房制金币场 =====
@@ -403,10 +444,13 @@ export default {
     isGold() {
       return !!(this.snap && this.snap.mode === 'gold');
     },
-    // 拼写卡牌是否只显示中文（金币场固定是；新手场由 display 决定）
-    zhOnly() {
-      if (this.isGold) return true;
-      return !!(this.snap && this.snap.display === 'zh');
+    // 拼中文模式：看着英文单词，拼写任一中文意思（同「玩耍」的英译汉）
+    isZhSpell() {
+      return !!(this.snap && this.snap.spellMode === 'zh-spell');
+    },
+    // 弹窗顶部展示的卡牌：拼中文→显英文单词；拼英文→显中文释义
+    spellShowWord() {
+      return !this.isZhSpell;
     },
     isMyGo() {
       return this.deployed && !!this.snap && !this.snap.over && this.snap.currentSide === this.mySideIdx;
@@ -519,13 +563,6 @@ export default {
       const u = this.spellPayload && this.spellPayload.kind;
       if (u === 'revive') return '✝️ 拼写正确即可复活';
       return `${this.spellRole} 出招 — 拼写这个单词`;
-    },
-    // 拼写弹窗的提示：只给首字母 + 长度，不泄露答案
-    spellHint() {
-      const w = (this.spellWord || '').trim();
-      if (!w) return '';
-      const rest = w.slice(1).replace(/[a-zA-Z]/g, '_');
-      return `${w[0]}${rest}（${w.length} 个字母）`;
     },
   },
   onShow() {
@@ -881,7 +918,7 @@ export default {
       this.msg = '';
       this.starting = true;
       try {
-        const res = await battleApi.startBattle(this.rookieDisplay);
+        const res = await battleApi.startBattle(this.rookieSpellMode);
         this.starting = false;        if (res && res.data) {
           this.battleId = res.data.battleId;
           this.deployed = false;   // 先进入布阵阶段
@@ -1040,7 +1077,9 @@ export default {
     commitSpell() {
       const payload = this.spellPayload;
       if (!payload) return;
-      const correct = (this.spellInput || '').trim().toLowerCase() === (this.spellWord || '').trim().toLowerCase();
+      const typed = (this.spellInput || '').trim();
+      // 拼中文：命中任一中文义项即算对；拼英文：照旧精确匹配英文单词
+      const correct = this.isZhSpell ? this.matchZhAnswer(typed) : this.matchEnAnswer(typed);
       const data = {
         kind: payload.kind,
         unit_card_id: payload.unitCardId,
@@ -1049,6 +1088,33 @@ export default {
       if (payload.targetCardId != null) data.target_card_id = payload.targetCardId;
       this.spellWin = false;
       this.act(data);
+    },
+    // 拼英文：忽略大小写/首尾空格
+    matchEnAnswer(typed) {
+      return (typed || '').toLowerCase() === (this.spellWord || '').trim().toLowerCase();
+    },
+    /**
+     * 拼中文：只要命中该单词的任一中文义项就算对（同「玩耍」的英译汉）。
+     * 逻辑与后端 cardService.acceptedAnswers 保持一致：
+     *   1. 整串释义
+     *   2. 按「，,、；;」拆出的每个义项
+     *   3. 每个义项去括号后的主干
+     * 比对时统一去空格 + 去尾部标点。
+     */
+    matchZhAnswer(typed) {
+      const val = normalizeZh(typed);
+      if (!val) return false;
+      const accepted = zhAnswersOf(this.spellMeaning);
+      if (accepted.includes(val)) return true;
+      // 宽容一层：用户把同一义项组里的同义词全打出来了（如「突然的，意外的」）
+      // 只要每个片段都能命中就算对
+      const parts = String(typed || '')
+        .split(/[，,、；;]/)
+        .map(normalizeZh)
+        .filter(Boolean);
+      if (parts.length > 1 && parts.every((p) => accepted.includes(p))) return true;
+      // 反向：用户只打了义项组的一部分（如整串释义里的“突然的”）已经由 accepted 覆盖
+      return false;
     },
     async act(data) {
       if (this.acting) return;
@@ -1338,6 +1404,7 @@ export default {
 .sp-mean { background: #f2f7ff; border-radius: 14rpx; padding: 18rpx; margin: 12rpx 0; }
 .sp-w { display: block; font-size: 20rpx; color: #999; }
 .sp-zh { display: block; font-size: 34rpx; color: #1a73e8; font-weight: bold; margin-top: 6rpx; }
+.sp-mode-tip { display: block; font-size: 22rpx; color: rgba(255,255,255,.7); margin: 10rpx 0 4rpx; text-align: center; }
 .sp-input { border: 2rpx solid #cfd8e6; border-radius: 14rpx; padding: 16rpx; font-size: 32rpx; }
 .sp-btns { display: flex; gap: 18rpx; margin-top: 22rpx; }
 .sp-cancel { flex:1; background: #eceff3; color: #666; font-size: 28rpx; border-radius: 40rpx; margin: 0; }

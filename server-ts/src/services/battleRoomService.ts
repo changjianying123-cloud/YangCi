@@ -319,8 +319,8 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
     reason: '',
     deployed: true,
     mode: 'gold' as const,
-    // 金币场固定只给中文，凭记忆拼写英文
-    display: 'zh' as const,
+    // 金币场：给中文、拼英文（同「喂养」）
+    spellMode: 'en-spell' as const,
     bet: room.bet,
     roomId: room.id,
     player: { userId: o, nickname: n0, units: player.units, queue: [...player.queue], deployed: true },

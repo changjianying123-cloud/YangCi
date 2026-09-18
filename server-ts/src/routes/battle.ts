@@ -10,9 +10,9 @@ const router = Router();
 // 创建一局 vs AI（用玩家当前 healthy 收服词组队）
 router.post('/ai/start', authMiddleware, async (req: Request, res: Response) => {
   try {
-    // display: 'en'（默认，显示英文看着拼）| 'zh'（只给中文，凭记忆拼英文）
-    const display = req.body?.display === 'zh' ? 'zh' : 'en';
-    const { battleId, snap } = await battleSvc.createBattle(req.userId!, display);
+    // spellMode: 'en-spell'（默认，拼英文）| 'zh-spell'（拼中文，填任一中文意思即可）
+    const spellMode = req.body?.spellMode === 'zh-spell' ? 'zh-spell' : 'en-spell';
+    const { battleId, snap } = await battleSvc.createBattle(req.userId!, spellMode);
     ok(res, { battleId, snap });
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '创建对战失败');

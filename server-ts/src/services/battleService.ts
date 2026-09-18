@@ -141,7 +141,7 @@ function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: Batt
 // ---------- 建局 ----------
 export async function createBattle(
   playerUserId: number,
-  display: 'en' | 'zh' = 'en'
+  spellMode: 'en-spell' | 'zh-spell' = 'en-spell'
 ): Promise<{ battleId: number; snap: BattleSnapshot }> {
   const playerPool = await fetchBattlePool(playerUserId);
   const aiPool = await fetchAiPool();
@@ -177,14 +177,14 @@ export async function createBattle(
     winner: null,
     reason: '',
     mode: 'rookie',
-    // 拼写展示方式：en=显示英文看着拼（默认）/ zh=只给中文，凭记忆拼英文
-    display: display === 'zh' ? 'zh' : 'en',
+    // 拼写模式：en-spell=给英文卡牌拼英文（同喂养）/ zh-spell=给英文卡牌拼中文（同玩耍）
+    spellMode: spellMode === 'zh-spell' ? 'zh-spell' : 'en-spell',
     player: { userId: playerUserId, nickname, units: player.units, queue: [...player.queue] },
     enemy: { userId: -1, nickname: '🤖 AI', units: enemy.units, queue: [...enemy.queue] },
     log: ['⚔️ 对战开始！你是先手。拼写正确即可触发词性技能。'],
   };
-  if (display === 'zh') {
-    snap.log.push('🀄 中文模式：只给中文释义，凭记忆拼写出英文才能出招。');
+  if ((snap as BattleSnapshot).spellMode === 'zh-spell') {
+    snap.log.push('🀄 拼中文模式：看着英文单词，拼写它的任一中文意思即可出招。');
   }
   BL.scanAutoEnd(snap);
   const [ins] = await pool.execute<ResultSetHeader>(

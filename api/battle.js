@@ -1,11 +1,11 @@
 import { request } from '@/utils/request.js';
 
 /** 开始 AI 对战
- *  display: 'en'（默认，显示英文看着拼）| 'zh'（只给中文，凭记忆拼英文） */
-export function startBattle(display) {
+ *  spellMode: 'en-spell'（默认，拼英文）| 'zh-spell'（拼中文，任一中文意思即可） */
+export function startBattle(spellMode) {
   return request('/battle/ai/start', {
     method: 'POST',
-    data: display ? { display } : {},
+    data: spellMode ? { spellMode } : {},
   });
 }
 
