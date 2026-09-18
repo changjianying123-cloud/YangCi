@@ -46,6 +46,7 @@
         <!-- 布阵阶段：2 分钟倒计时 + 调整站位 -->
         <view v-if="room.status === 'deploy'" class="room-deploy">
           <text class="room-deploy-tip">🎯 布阵阶段 · 剩余 <b>{{ room.deployLeft }}</b> 秒</text>
+          <text class="room-deploy-scale">💰 本档位（{{ room.bet }} 金币）· 双方各出战 <b>{{ (room.myTroop || []).length }}</b> 词大名单</text>
           <text class="room-deploy-sub">拖动/点击两张互换站位（可跨列），<b>每列前 2 位可出手</b>、敌每列最前 1 位可被打</text>
           <view class="deploy-cols">
             <view v-for="(col, ci) in roomDeployCols" :key="'rdc' + ci" class="deploy-col">
@@ -154,8 +155,9 @@
           <button
             v-if="r.status === 'waiting' && r.myRole === 'spectator'"
             class="room-join"
+            :class="{ locked: !betAffordable(r.bet) }"
             @click="onJoinRoom(r)"
-          >🪑 坐下对战</button>
+          >{{ betAffordable(r.bet) ? '🪑 坐下对战' : '🔒 需 ' + betTroop(r.bet) + ' 个健康单词（你有 ' + myWordCount + ' 个）' }}</button>
           <text v-else-if="r.myRole === 'owner'" class="room-tip">👉 你的桌子，等待对手坐下…</text>
           <text v-else-if="r.myRole === 'guest'" class="room-tip">👉 你已坐在这桌</text>
           <text v-else class="room-tip">👀 观战中</text>
@@ -969,6 +971,14 @@ export default {
     },
     async onJoinRoom(r) {
       this.msg = '';
+      // 🪙 健康单词不够本档位 → 直接拦下（不白跑请求，也避免坐下后才发现）
+      if (!this.betAffordable(r.bet)) {
+        uni.showToast({
+          title: `本档位（${r.bet} 金币）需 ${this.betTroop(r.bet)} 个健康单词，你只有 ${this.myWordCount} 个`,
+          icon: 'none',
+        });
+        return;
+      }
       this.busy = true;
       try {
         const res = await battleApi.roomJoin(r.id);
@@ -1419,6 +1429,7 @@ export default {
 .room-deploy-tip { display: block; font-size: 27rpx; font-weight: 800; color: #ffb74d; margin-bottom: 6rpx; }
 .room-deploy-tip b { color: #ffd54f; font-size: 32rpx; }
 .room-deploy-sub { display: block; font-size: 21rpx; color: #9fb6d0; line-height: 1.6; margin: 6rpx 0 12rpx; }
+.room-deploy-scale { display: block; font-size: 23rpx; color: #ffd54f; font-weight: bold; margin-bottom: 4rpx; }
 .room-deploy-list { display: flex; flex-direction: column; gap: 8rpx; margin-bottom: 14rpx; }
 .room-deploy-item.empty { opacity: .35; border-style: dashed; justify-content: center; }
 .room-deploy-item { display: flex; align-items: center; gap: 12rpx; padding: 12rpx 14rpx; background: rgba(255,255,255,.06); border: 2rpx solid rgba(255,255,255,.14); border-radius: 14rpx; }
@@ -1467,6 +1478,7 @@ export default {
 .room-line2 { display: flex; flex-wrap: wrap; gap: 20rpx; margin: 12rpx 0 4rpx; }
 .room-stat { font-size: 24rpx; color: #cfe0f5; }
 .room-join { margin-top: 14rpx; background: linear-gradient(135deg, #ffb300, #ffd54f); color: #5d4037; font-size: 28rpx; font-weight: bold; border-radius: 36rpx; padding: 4rpx 0; }
+.room-join.locked { background: #90a4ae; color: #eceff1; font-size: 22rpx; font-weight: normal; }
 .room-tip { display: block; margin-top: 10rpx; font-size: 24rpx; color: #9fd4ff; }
 /* 房间座位 */
 .room-seats { display: flex; align-items: stretch; gap: 12rpx; margin: 10rpx 0 26rpx; }

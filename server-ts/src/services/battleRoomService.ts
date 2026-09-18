@@ -303,6 +303,14 @@ async function saveDeployOrder(roomId: number, userId: number, order: number[]) 
 function getDeployOrder(roomId: number, userId: number): number[] {
   return deployOrders.get(orderKey(roomId, userId)) || [];
 }
+/**
+ * ⚠️ 房间结束时必须清掉双方暂存的布阵顺序，否则残留会泄漏到同号房间的下一局
+ *（map key 是 roomId:userId，房间号复用时会串味）。
+ */
+function clearDeployOrders(room: { id: number; owner_user_id: number; guest_user_id?: number | null }) {
+  deployOrders.delete(orderKey(room.id, room.owner_user_id));
+  if (room.guest_user_id != null) deployOrders.delete(orderKey(room.id, room.guest_user_id));
+}
 
 /** 开战：用双方健康词建 battle，写入 battle_rooms.battle_id */
 async function startRoomBattle(room: BattleRoomRow): Promise<number> {
@@ -409,6 +417,7 @@ export async function leaveRoom(roomId: number, userId: number, reason: 'leave' 
 
 /** 战斗自然结束 → 房间结算：winner 拿底池（平局退还） */
 async function settleRoomBattle(room: BattleRoomRow, winnerId: number | null, reason: string): Promise<void> {
+  clearDeployOrders(room);
   const ref = await loadRoom(room.id);
   if (!ref || ref.status === 'finished' || ref.status === 'cancelled') return; // 幂等
   const pot = Number(room.bet) * 2;
@@ -443,6 +452,7 @@ async function settleRoomBattle(room: BattleRoomRow, winnerId: number | null, re
 
 /** 判负：winner=对方，结算底池 */
 export async function forfeitRoom(room: BattleRoomRow, loserId: number, why: string): Promise<void> {
+  clearDeployOrders(room);
   if (room.status === 'finished' || room.status === 'cancelled') return;
   const ref = await loadRoom(room.id);
   if (!ref || ref.status === 'finished') return; // 幂等
@@ -613,6 +623,7 @@ export function startRoomScanner() {
 
 /** 取消房间并退还押注 */
 export async function cancelAndRefund(room: BattleRoomRow, why: string) {
+  clearDeployOrders(room);
   if (room.escrowed) {
     const bet = Number(room.bet);
     const users: number[] = [];
