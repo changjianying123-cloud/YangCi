@@ -54,13 +54,22 @@ async function fetchAiPool(limit = 80): Promise<PickedWord[]> {
   return rows;
 }
 
-function rolesOf(c: PickedWord): BattleRole[] {
+/**
+ * 取一个词的**固定**战斗词性：只认第一个可识别的词性，不再“按缺改编”。
+ * 例：'n.,adj.' → noun；'v.' → verb。无标注 → 默认 noun（护盾手）。
+ * ⚠️ 方案 C：一局内词性从始至终不变。
+ */
+function primaryRole(c: PickedWord): BattleRole {
   const roles = (c.pos || '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
+    .split(/[,，、/;；]+/)
+    .map((s) => s.trim().toLowerCase().replace(/\.$/, ''))
     .filter((r): r is BattleRole => r === 'noun' || r === 'adjective' || r === 'verb' || r === 'adverb');
-  // 无词性标注(例如 'other')的词默认当名词（护盾手），保证能进战斗
-  return roles.length ? roles : ['noun'];
+  return roles[0] || 'noun';
+}
+
+/** 兼容旧调用：返回该词的（唯一）战斗词性数组 */
+function rolesOf(c: PickedWord): BattleRole[] {
+  return [primaryRole(c)];
 }
 
 // 导出给 PvP 服务复用
@@ -76,8 +85,10 @@ export function buildSide(poolWords: PickedWord[], sizeOverride?: number): { uni
  * 从池子里组一支部队（BL.TROOP_SIZE 个）：
  *   - 至少 1 个作战动词
  *   - 词性尽量均衡（verb/noun/adjective/adverb 都尽量来一个，剩余补）
- *   - 多词性词可被“改编”成缺失角色
- * 若词不足 BL.TROOP_SIZE 则有多少用多少（仍需至少 1 verb 才能开打，否则由 checkEnd 判负）。
+ *   - 至少 1 个作战动词
+ *   - 词性尽量均衡（verb/noun/adjective/adverb 都尽量来一个，剩余补）
+ *   - ⭐ 方案 C：每个词的词性**只取它的第一词性**，一局内固定不变（不再“改编”多词性词）
+ * 若词不足 BL.TROOP_SIZE 则有多少用多少；若整个词池一个动词都没有，则**不允许开战**（由调用方拦下）。
  */
 function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: BattleUnit[]; queue: number[] } {
   const byRole: Record<BattleRole, PickedWord[]> = { noun: [], adjective: [], verb: [], adverb: [] };
@@ -161,8 +172,11 @@ export async function createBattle(
 
 
   if (player.units.length === 0) throw new Error('你还没有健康的可出战单词，先去收服并喂养一些吧');
-  // 只要有健康单词就能开打：全队没动词时，挑一个词兼职攻击手（不再直接报错）
-  BL.ensureVerb(player);
+  // ⭐ 方案 C：词性固定不变，不再自动推举兼职攻击手。
+  //   若队伍里一个动词（攻击手）都没有 → 不允许开战（C3）。
+  if (!player.units.some((u) => u.role === 'verb')) {
+    throw new Error('你的队伍里没有动词（攻击手），去收服几个动词再来开战吧');
+  }
 
   const [nickR] = await pool.execute<RowDataPacket[]>('SELECT nickname, openid FROM users WHERE id = ?', [playerUserId]);
   const r0 = nickR[0] as { nickname?: string | null };
@@ -400,7 +414,7 @@ async function advancePvpTurn(battleId: number, snap: BattleSnapshot) {
       BL.promoteBackline(s);
       BL.resetTurnFlags(s);
     }
-    BL.ensureVerbs(snap);
+    // ⭐ 方案 C：不再补保障攻击手，词性一局内固定
     // 切换行动方
     snap.currentSide = snap.currentSide === 0 ? 1 : 0;
     const nextName = snap.currentSide === 0 ? snap.player.nickname : snap.enemy.nickname;
@@ -470,13 +484,12 @@ async function resolveToPlayerTurn(battleId: number, snap: BattleSnapshot) {
     if (snap.turn > BL.MAX_TURNS) {
       BL.suddenDeath(snap); // 打满兜底决胜
     } else {
-      // 回合末：前后排补位 + 重置出手标记 + 保底攻击手，让每个存活单位下回合都能再行动
+      // 回合末：前后排补位 + 重置出手标记（⭐ 方案 C：不再补保障攻击手）
       for (const side of [snap.player, snap.enemy]) {
         BL.cleanupQueue(side);
         BL.promoteBackline(side);
         BL.resetTurnFlags(side);
       }
-      BL.ensureVerbs(snap);
       snap.currentSide = 0;
       snap.log.push('🎯 轮到你行动');
     }

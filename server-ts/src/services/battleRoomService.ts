@@ -92,7 +92,7 @@ export async function roomView(room: BattleRoomRow, viewerId: number): Promise<R
       const poolWords = await core.fetchBattlePool(viewerId);
       const side = core.buildSide(poolWords);
       const r = side as unknown as { units: BattleUnit[] };
-      BL.ensureVerb(r as never);
+      // ⭐ 方案 C：词性固定，不再推举兼职攻击手（此处也不同 ensureVerb）
       const saved = getDeployOrder(room.id, viewerId);
       const order = saved && saved.length ? saved : r.units.map((u) => u.cardId);
       view.myTroop = order
@@ -265,7 +265,14 @@ export async function deployRoom(roomId: number, userId: number, order: number[]
 
   // 双方都已确认 s 立即开战
   if (updated.owner_deployed && updated.guest_deployed) {
-    const battleId = await startRoomBattle(updated);
+    let battleId: number;
+    try {
+      battleId = await startRoomBattle(updated);
+    } catch (e) {
+      // ⭐ C3：任一方无动词开不了战 → 退还押注、取消房间，不能让玩家押注卡住
+      await cancelAndRefund(updated, e instanceof Error ? e.message : '开战失败');
+      throw e;
+    }
     updated = await loadRoom(roomId);
     await pushRoomToBoth(updated!);
     broadcastAll({ type: 'rooms_changed', data: {} });
@@ -300,9 +307,14 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
   const gOrder = getDeployOrder(room.id, g);
   applyOrder(player, oOrder);
   applyOrder(enemy, gOrder);
-  // 开局不给屏障：屏障靠拼对名词/形容词自己叠，不系统白送。
-  BL.ensureVerb(player);
-  BL.ensureVerb(enemy);
+  // ⭐ 方案 C（C3）：词性固定不变，不自动推举兼职攻击手。
+  //   若某一方队伍里一个动词都没有 → 不允许开战（退还押注+取消房间）。
+  if (!player.units.some((u) => u.role === 'verb')) {
+    throw new Error('房主的队伍里没有动词（攻击手），无法开战');
+  }
+  if (!enemy.units.some((u) => u.role === 'verb')) {
+    throw new Error('对手的队伍里没有动词（攻击手），无法开战');
+  }
 
   const [n0, n1] = await Promise.all([
     getNickname(o),

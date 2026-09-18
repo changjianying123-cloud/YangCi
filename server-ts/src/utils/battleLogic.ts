@@ -335,17 +335,17 @@ export function hasVerb(side: { queue: number[]; units: BattleUnit[] }): boolean
 }
 
 /**
- * 保底攻击手：若全队没有任何动词(攻击手)，把第一个存活单位“兼职”成动词，
- * 保证只要有健康单词就能开打，不会一开场就因无动词自动判负。
- * 已存在动词时不做任何改动。
+ * 保底攻击手：[已废弃 — 方案 C]
+ * 从前：若全队没有任何动词，把第一个存活单位“兼职”成动词。
+ * 现在：词性一局内固定不变，**不再调用**（保留函数以免外部引用报错）。
  */
-export function ensureVerb(side: { queue: number[]; units: BattleUnit[] }): void {
-  if (hasVerb(side)) return;
-  const first = standingQueue(side)
-    .map((id) => findUnit(side, id))
-    .find((u): u is BattleUnit => !!u && !u.dead);
-  if (!first) return;
-  first.role = 'verb';
+export function ensureVerb(_side: { queue: number[]; units: BattleUnit[] }): void {
+  /* no-op（方案 C：词性固定，不中途改编） */
+}
+
+/** 回合末保底：[已废弃 — 方案 C] 见 ensureVerb */
+export function ensureVerbs(_snap: BattleSnapshot): void {
+  /* no-op（方案 C：词性固定，不中途改编） */
 }
 
 /**
@@ -356,15 +356,22 @@ export function checkEnd(snap: BattleSnapshot): { winner: number | null; reason:
   const eAlive = hasStanding(snap.enemy);
   if (!pAlive) return { winner: 1, reason: '我方全部阵亡，敌方获胜' };
   if (!eAlive) return { winner: 0, reason: '敌方全部阵亡，我方获胜' };
-  // 注：不再因为“没有动词”而直接判负。动词阵亡后由 ensureVerb 在回合末自动推举新攻击手，
-  // 只有两边都确实没兵时才会结束，避免“刚开打就秒输”的挫败感。
+  // ⭐ 方案 C（C1）：词性固定不变，不再推举兼职攻击手。
+  //   某一方场上没有存活动词（攻击手）→ 无法再造成伤害，直接判该方输。
+  //   两边都没动词的稳（理论不会发生）→ 按剩余兵力决胜。
+  const pVerb = hasVerb(snap.player);
+  const eVerb = hasVerb(snap.enemy);
+  if (!pVerb && !eVerb) {
+    const pc = standingQueue(snap.player).length;
+    const ec = standingQueue(snap.enemy).length;
+    // 兵多者胜，兵一样多偏向玩家(与 suddenDeath 一致)
+    return pc >= ec
+      ? { winner: 0, reason: '双方都没了攻击手，按剩余兵力判定：我方获胜' }
+      : { winner: 1, reason: '双方都没了攻击手，按剩余兵力判定：敌方获胜' };
+  }
+  if (!pVerb) return { winner: 1, reason: '我方攻击手（动词）全部阵亡，无法再造成伤害，敌方获胜' };
+  if (!eVerb) return { winner: 0, reason: '敌方攻击手（动词）全部阵亡，无法再造成伤害，我方获胜' };
   return null;
-}
-
-/** 回合末保底：为双方各自补一个攻击手(动词)，避免无动词就卡成平局/判负 */
-export function ensureVerbs(snap: BattleSnapshot): void {
-  ensureVerb(snap.player);
-  ensureVerb(snap.enemy);
 }
 
 /** 进攻方回合是否因“场上无动词/全灭”等而应提前结束 */
