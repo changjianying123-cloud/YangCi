@@ -70,9 +70,12 @@ export function unitPosition(side: { queue: number[]; units: BattleUnit[] }, car
 
 // ---------- 阵亡/复活 ----------
 
-/** 可否复活：阵亡 且 本局一次都没出过手（上来就死了） 且 本局还没复活过 */
+/**
+ * 可否复活：阵亡 且 本局**从来没出手拼写过**（上来就死） 且 本局还没复活过。
+ * spelledOnce 在每次出手(拼对/拼错都算)时置 true → 拼写过一次就不可复活。
+ */
 export function canRevive(u: BattleUnit): boolean {
-  return u.dead && !u.usedSkill && !u.revived;
+  return u.dead && !u.usedSkill && !u.revived && !u.spelledOnce;
 }
 
 // ---------- 攻击结算（一击必杀制：无血量，屏障=命）----------

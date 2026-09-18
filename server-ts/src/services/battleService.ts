@@ -134,6 +134,7 @@ function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: Batt
     dead: false,
     usedSkill: false,
     revived: false,
+    spelledOnce: false,
   }));
   return { units, queue: units.map((u) => u.cardId) };
 }
@@ -309,6 +310,14 @@ export async function pollBattle(battleId: number, playerUserId: number): Promis
     await resolveToPlayerTurn(battleId, snap);
     return snap;
   }
+  // AI 模式：我方回合且倒计时已到 → 判空过（本次不出手），交给敌方回合
+  if (!pvp && snap.currentSide === 0 && side === 0 && Date.now() > snap.activeUntil) {
+    snap.log.push('⏰ 你的回合超时，本次判为空过');
+    beginEnemyTurn(snap);
+    BL.scanAutoEnd(snap);
+    await saveBattle(battleId, snap);
+    return snap;
+  }
   // 真人 PvP：双方轮流；若轮到你但已超时 → 判空过，切给对方
   if (pvp && snap.currentSide === side && Date.now() > snap.activeUntil) {
     snap.log.push(`⏰ ${snap.currentSide === 0 ? snap.player.nickname : snap.enemy.nickname} 回合超时，空过`);
@@ -344,6 +353,8 @@ export async function playerAct(
   } else if (action.kind === 'skill') {
     const u = me.units.find((x) => x.cardId === action.unitCardId);
     const wname = u ? u.word : `#${action.unitCardId}`;
+    // 只要出手（无论拼对拼错）都算「拼写过」，之后就算阵亡也不可复活
+    if (u) u.spelledOnce = true;
     if (!spellCorrect) {
       snap.log.push(`❌ 拼写错误，「${wname}」技能未能发动（本次行动作废）`);
     } else {
@@ -356,7 +367,7 @@ export async function playerAct(
       }
     }
   } else {
-    // revive
+    // revive：复活拼写**不算**出手（否则一尝试复活就把自己锁死，永远救不回来）
     const out = BL.tryRevive(snap, side, action.unitCardId, spellCorrect);
     snap.log.push(out.log);
   }

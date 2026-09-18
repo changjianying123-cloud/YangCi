@@ -200,7 +200,7 @@
         <br />🛡️ <b>一击必杀制</b>：没有血量，屏障就是命。无屏障的词一旦被动词命中就**直接阵亡**。
         <br />⚔️ 屏障每层能挡下一次攻击（最多 3 层）；被破盾的单词本回合无法续盾。
         <br />⚔️ 动词有副词加成时，破盾的同时直接击穿击杀。
-        <br />💀 阵亡且没出过手的词，可拼对复活 1 次（无屏障回来）。
+        <br />💀 <b>复活</b>：阵亡且本局<b>从没出手拼写过</b>的词，可拼对复活 1 次（无屏障回来）；出手过（哪怕拼错了）就不能复活。
         <br />⏱ 每步 30 秒，超时空过。清光对面 / 逼走对方攻击手即胜。
         <br />💰 <b>金币场</b>：只显中文、凭记忆拼写英文；真人实时对战，赢家拿走双方押注。
       </view>
@@ -666,8 +666,8 @@ export default {
     },
     startTicking() {
       this.stopTicking();
-      this.timer = TURN_SECONDS;
-      this.turnLen = TURN_SECONDS;
+      // 尊重服务端本回合的长度（敌方思考时间可能远短于 30s），否则会显示成 30s
+      this.syncTimerFromSnap();
       this._tick = setInterval(() => {
         if (!this.snap || this.snap.over) { this.stopTicking(); return; }
         // 双方回合都用本地回合开始时间计算剩余秒数

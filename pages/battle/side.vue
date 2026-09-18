@@ -89,7 +89,8 @@ export default {
       return this.flip ? 1 : 0;
     },
     revivableIds() {
-      return this.side.units.filter((x) => x.dead && !x.usedSkill && !x.revived).map((x) => x.cardId);
+      // 与后端 canRevive 一致：阵亡 + 未出过手 + 本局未复活过 + 【本局从未出手拼写过】
+      return this.side.units.filter((x) => x.dead && !x.usedSkill && !x.revived && !x.spelledOnce).map((x) => x.cardId);
     },
   },
   methods: {
