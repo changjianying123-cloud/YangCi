@@ -245,6 +245,26 @@ router.delete('/mnemonics/:id', async (req: Request, res: Response) => {
   }
 });
 
+/** 隐藏 / 恢复用户发布的助记（审核用，不物理删除） */
+router.post('/mnemonics/:id/status', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const status = Number(req.body.status) === 1 ? 1 : 0;
+  try {
+    const r = await svc.adminSetMnemonicStatus(id, status);
+    await logAdminAction(
+      req.userId!,
+      status === 1 ? 'mnemonic.unhide' : 'mnemonic.hide',
+      'mnemonic',
+      id,
+      { status },
+      clientIp(req)
+    );
+    ok(res, r, status === 1 ? '已恢复显示' : '已隐藏');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '操作失败');
+  }
+});
+
 router.get('/users', async (req: Request, res: Response) => {
   try {
     const bannedRaw = req.query.banned;

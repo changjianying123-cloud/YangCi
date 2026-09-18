@@ -101,33 +101,48 @@
     <el-drawer v-model="mn.visible" :title="`助记管理 · ${mn.word}`" size="560px">
       <div v-loading="mn.loading">
         <el-alert type="info" :closable="false" style="margin-bottom: 14px">
-          一个单词可以添加多条助记。每条可以只有图片、只有文字，或两者都有。
+          <div style="line-height: 1.7">
+            一个单词可以添加多条助记。<br />
+            <b>官方助记</b>由后台发布（官方优先展示）；<b>用户助记</b>由小程序用户发布，互相可见。<br />
+            用户助记后台不能改内容，只能<b>隐藏/恢复</b>。
+          </div>
         </el-alert>
 
         <el-button type="primary" :icon="Plus" size="small" @click="openMnemonicForm(null)" style="margin-bottom: 14px">
-          新增助记
+          新增官方助记
         </el-button>
 
         <el-empty v-if="!mn.list.length && !mn.loading" description="还没有助记" :image-size="70" />
 
-        <div v-for="m in mn.list" :key="m.id" class="mn-card">
+        <div v-for="m in mn.list" :key="m.id" class="mn-card" :class="{ hidden: m.status === 0 }">
           <div class="mn-head">
+            <el-tag v-if="m.isOfficial" size="small" type="primary">官方</el-tag>
+            <el-tag v-else size="small" type="success">{{ m.authorName || '用户' }}</el-tag>
             <span class="mn-title">{{ m.title || '（无标题）' }}</span>
+            <el-tag v-if="m.status === 0" size="small" type="danger">已隐藏</el-tag>
+            <span v-if="m.likeCount" class="mn-sort">❤️ {{ m.likeCount }}</span>
             <span class="mn-sort">排序 {{ m.sort }}</span>
             <div class="spacer"></div>
-            <el-button link type="primary" size="small" @click="openMnemonicForm(m)">编辑</el-button>
+            <el-button v-if="m.isOfficial" link type="primary" size="small" @click="openMnemonicForm(m)">编辑</el-button>
+            <el-button
+              v-if="!m.isOfficial"
+              link
+              :type="m.status === 0 ? 'success' : 'warning'"
+              size="small"
+              @click="toggleMnemonicStatus(m)"
+            >{{ m.status === 0 ? '恢复' : '隐藏' }}</el-button>
             <el-button link type="danger" size="small" @click="removeMnemonic(m)">删除</el-button>
           </div>
           <div v-if="m.imageUrl" class="mn-img">
-            <el-image :src="m.imageUrl" fit="cover" style="width: 120px; height: 90px" :preview-src-list="[m.imageUrl]" preview-teleported />
+            <el-image :src="absUrl(m.imageUrl)" fit="cover" style="width: 120px; height: 90px" :preview-src-list="[absUrl(m.imageUrl)]" preview-teleported />
           </div>
           <div v-if="m.content" class="mn-content">{{ m.content }}</div>
         </div>
       </div>
     </el-drawer>
 
-    <!-- 助记 新增/编辑 -->
-    <el-dialog v-model="mnForm.visible" :title="mnForm.editing ? '编辑助记' : '新增助记'" width="480px" append-to-body>
+    <!-- 助记 新增/编辑（仅官方） -->
+    <el-dialog v-model="mnForm.visible" :title="mnForm.editing ? '编辑官方助记' : '新增官方助记'" width="480px" append-to-body>
       <el-form :model="mnForm" label-width="80px">
         <el-form-item label="标题">
           <el-input v-model="mnForm.title" placeholder="如 谐音法 / 图像联想（可留空）" />
@@ -136,10 +151,10 @@
           <el-input v-model="mnForm.imageUrl" placeholder="图片地址 URL（可留空）" />
           <el-image
             v-if="mnForm.imageUrl"
-            :src="mnForm.imageUrl"
+            :src="absUrl(mnForm.imageUrl)"
             fit="cover"
             style="width: 120px; height: 90px; margin-top: 8px"
-            :preview-src-list="[mnForm.imageUrl]"
+            :preview-src-list="[absUrl(mnForm.imageUrl)]"
             preview-teleported
           />
         </el-form-item>
@@ -381,12 +396,32 @@ async function saveMnemonic() {
 }
 async function removeMnemonic(m) {
   try {
-    await ElMessageBox.confirm('确定删除这条助记吗？', '提示', { type: 'warning' });
+    await ElMessageBox.confirm('确定删除这条助记吗？删除后不可恢复。', '提示', { type: 'warning' });
   } catch { return; }
   await wordApi.removeMnemonic(m.id);
   ElMessage.success('已删除');
   await loadMnemonics();
   load();
+}
+async function toggleMnemonicStatus(m) {
+  const next = m.status === 0 ? 1 : 0;
+  try {
+    await ElMessageBox.confirm(
+      next === 0 ? '隐藏后用户就看不到这条助记了（不删除，可恢复）。' : '恢复后用户能重新看到这条助记。',
+      next === 0 ? '隐藏助记' : '恢复助记',
+      { type: 'warning' }
+    );
+  } catch { return; }
+  await wordApi.setMnemonicStatus(m.id, next);
+  ElMessage.success(next === 0 ? '已隐藏' : '已恢复');
+  await loadMnemonics();
+}
+// 图片路径：vite 已代理 /uploads 到后端，直接用相对路径即可
+function absUrl(url) {
+  if (!url) return '';
+  const s = String(url);
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s;
+  return s.startsWith('/') ? s : '/' + s;
 }
 
 // ===== 导入 =====
@@ -487,6 +522,7 @@ onMounted(async () => {
   margin-bottom: 10px;
   background: #fafafa;
 }
+.mn-card.hidden { opacity: 0.55; background: #f4f4f5; }
 .mn-head { display: flex; align-items: center; gap: 8px; }
 .mn-title { font-weight: 600; }
 .mn-sort { color: #909399; font-size: 12px; }

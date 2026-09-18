@@ -14,6 +14,11 @@ export default defineConfig({
         target: API_TARGET,
         changeOrigin: true,
       },
+      // 上传的图片（助记配图等）也在后端，直接走代理，前端用相对路径即可
+      '/uploads': {
+        target: API_TARGET,
+        changeOrigin: true,
+      },
     },
   },
 });

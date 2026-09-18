@@ -2,19 +2,7 @@ import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { pool } from '../db/pool';
 import crypto from 'crypto';
 import { onlineCount } from '../ws/hub';
-
-/**
- * 把 MySQL 的 timestamp 统一成毫秒时间戳，供前端直接 new Date(ms) 使用。
- * mysql2 对 DATETIME/TIMESTAMP 返回的是 JS Date 对象，直接 Number() 会得到 NaN，
- * 旧前端因此显示 “NaN-NaN-NaN”。这里在服务端一次归一化，前端无需再兼容字符串。
- */
-function toMillis(v: unknown): number | null {
-  if (v === null || v === undefined || v === '') return null;
-  if (v instanceof Date) return v.getTime();
-  if (typeof v === 'number') return v;
-  const t = new Date(String(v)).getTime();
-  return Number.isNaN(t) ? null : t;
-}
+import { toMillis } from '../utils/time';
 
 // ==================== 单词管理 ====================
 
@@ -186,7 +174,11 @@ export async function adminDeleteWord(wordId: number) {
   const cardCount = Number((affected[0] as { c: number })?.c) || 0;
 
   // feed_logs 有外键指向 user_cards，先删日志再删卡再删词
-  // 助记表也一并清掉，避免残留孤儿数据
+  // 助记表也一并清掉（含点赞记录），避免残留孤儿数据
+  await pool.execute(
+    'DELETE ml FROM mnemonic_likes ml JOIN word_mnemonics wm ON wm.id = ml.mnemonic_id WHERE wm.word_id = ?',
+    [wordId]
+  );
   await pool.execute('DELETE FROM word_mnemonics WHERE word_id = ?', [wordId]);
   await pool.execute(
     'DELETE fl FROM feed_logs fl JOIN user_cards uc ON uc.id = fl.card_id WHERE uc.word_id = ?',
@@ -558,6 +550,7 @@ export async function adminOnlineUsers() {
 // ==================== 单词助记（一个单词可多个） ====================
 
 function mapMnemonic(r: any) {
+  const isOfficial = r.user_id === null || r.user_id === undefined;
   return {
     id: r.id,
     wordId: r.word_id,
@@ -565,15 +558,25 @@ function mapMnemonic(r: any) {
     imageUrl: r.image_url,
     content: r.content,
     sort: Number(r.sort) || 0,
+    // 官方助记 = user_id 为 NULL（后台发布）；否则是用户于小程序发布的
+    isOfficial,
+    authorId: r.user_id ?? null,
+    authorName: r.author_name || null,
+    likeCount: Number(r.like_count) || 0,
+    status: Number(r.status ?? 1),
     createdAt: toMillis(r.created_at),
     updatedAt: toMillis(r.updated_at),
   };
 }
 
-/** 查某单词下的全部助记 */
+/** 查某单词下的全部助记（官方 + 用户发布，供后台审核/查看） */
 export async function adminListMnemonics(wordId: number) {
   const [rows] = await pool.execute<RowDataPacket[]>(
-    'SELECT * FROM word_mnemonics WHERE word_id = ? ORDER BY sort ASC, id ASC',
+    `SELECT m.*, u.nickname AS author_name
+     FROM word_mnemonics m
+     LEFT JOIN users u ON u.id = m.user_id
+     WHERE m.word_id = ?
+     ORDER BY (m.user_id IS NOT NULL) ASC, m.sort ASC, m.id ASC`,
     [wordId]
   );
   return rows.map(mapMnemonic);
@@ -595,6 +598,7 @@ export async function adminCreateMnemonic(data: {
   if (!w[0]) throw new Error('单词不存在');
 
   const [result] = await pool.execute<ResultSetHeader>(
+    // user_id 不传 → 保持 NULL，即「官方助记」
     'INSERT INTO word_mnemonics (word_id, title, image_url, content, sort) VALUES (?, ?, ?, ?, ?)',
     [data.wordId, data.title || null, imageUrl || null, content || null, data.sort ?? 0]
   );
@@ -602,12 +606,20 @@ export async function adminCreateMnemonic(data: {
   return mapMnemonic(rows[0]);
 }
 
+/**
+ * 后台编辑助记。
+ * ⚠️ 用户自己发布的助记（user_id 非空）不允许后台改内容——
+ *    那是用户的原创内容，后台只该管可见性（hide/unhide）。
+ */
 export async function adminUpdateMnemonic(
   id: number,
   data: { title?: string | null; imageUrl?: string | null; content?: string | null; sort?: number }
 ) {
   const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM word_mnemonics WHERE id = ?', [id]);
   if (!rows[0]) throw new Error('助记不存在');
+  if (rows[0].user_id !== null && rows[0].user_id !== undefined) {
+    throw new Error('用户发布的助记不可编辑内容，只能隐藏/恢复');
+  }
 
   const sets: string[] = [];
   const params: any[] = [];
@@ -627,9 +639,21 @@ export async function adminUpdateMnemonic(
   return { updated: true, item: mapMnemonic(after[0]) };
 }
 
+/**
+ * 隐藏 / 恢复一条助记（对用户发布的助记做审核，不物理删除）
+ * status: 1 正常，0 隐藏
+ */
+export async function adminSetMnemonicStatus(id: number, status: 0 | 1) {
+  const [rows] = await pool.execute<RowDataPacket[]>('SELECT id FROM word_mnemonics WHERE id = ?', [id]);
+  if (!rows[0]) throw new Error('助记不存在');
+  await pool.execute('UPDATE word_mnemonics SET status = ? WHERE id = ?', [status, id]);
+  return { id, status };
+}
+
 export async function adminDeleteMnemonic(id: number) {
   const [rows] = await pool.execute<RowDataPacket[]>('SELECT id FROM word_mnemonics WHERE id = ?', [id]);
   if (!rows[0]) throw new Error('助记不存在');
+  await pool.execute('DELETE FROM mnemonic_likes WHERE mnemonic_id = ?', [id]);
   await pool.execute('DELETE FROM word_mnemonics WHERE id = ?', [id]);
   return { deleted: true };
 }

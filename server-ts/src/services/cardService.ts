@@ -16,6 +16,7 @@ import {
   canPlayCard,
 } from '../utils/cardStatus';
 import { cleanMeaning, POS_PREFIX_RE } from '../utils/meaning';
+import { countMnemonics } from './mnemonicService';
 
 async function getUserCoins(userId: number): Promise<number> {
   const [rows] = await pool.execute<UserRow[]>(
@@ -189,7 +190,10 @@ export async function getCardDetail(userId: number, cardId: number): Promise<Car
   );
   if (!rows[0]) return null;
   const userCoins = await getUserCoins(userId);
-  return toCardDTO(rows[0], userCoins);
+  const dto = toCardDTO(rows[0], userCoins);
+  // 喂养页要显示「查看助记」入口，这里补上助记条数（列表接口不带，避免 N+1）
+  (dto as CardDTO & { mnemonicCount?: number }).mnemonicCount = await countMnemonics(rows[0].word_id);
+  return dto;
 }
 
 /**

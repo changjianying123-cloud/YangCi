@@ -34,6 +34,9 @@
         <text class="hint" @click="showFullWord = !showFullWord">
           {{ showFullWord ? currentWord.word : '👆 点击显示完整单词' }}
         </text>
+        <view v-if="currentWord.mnemonicCount > 0" class="mn-entry" @click="openMnemonics(currentWord)">
+          <text>💡 查看助记（{{ currentWord.mnemonicCount }}）</text>
+        </view>
       </view>
 
       <!-- 滚动检测：只显示释义，不显示发音和音标 -->
@@ -50,8 +53,20 @@
         <text class="hint" @click="showFullWord = !showFullWord">
           {{ showFullWord ? currentWord.word : '👆 点击显示完整单词' }}
         </text>
+        <view v-if="currentWord.mnemonicCount > 0" class="mn-entry" @click="openMnemonics(currentWord)">
+          <text>💡 查看助记（{{ currentWord.mnemonicCount }}）</text>
+        </view>
       </view>
     </view>
+
+    <!-- 助记面板 -->
+    <MnemonicPanel
+      :visible="mnVisible"
+      :word-id="mnWordId"
+      :word="mnWordText"
+      @close="mnVisible = false"
+      @changed="onMnemonicChanged"
+    />
 
     <SpellInput
       v-model="inputValue"
@@ -81,10 +96,11 @@
 import { getRandomWord, checkCatchableWord, batchCatchWords } from '@/api/word.js';
 import SpellInput from '@/components/SpellInput/SpellInput.vue';
 import AudioPlayer from '@/components/AudioPlayer/AudioPlayer.vue';
+import MnemonicPanel from '@/components/MnemonicPanel/MnemonicPanel.vue';
 import store from '@/store/index.js';
 
 export default {
-  components: { SpellInput, AudioPlayer },
+  components: { SpellInput, AudioPlayer, MnemonicPanel },
   data() {
     return {
       bookCode: '',
@@ -114,6 +130,10 @@ export default {
       failBackWordId: null,
       // 是否从本地缓存恢复的进度
       restored: false,
+      // 助记面板
+      mnVisible: false,
+      mnWordId: null,
+      mnWordText: '',
     };
   },
   created() {
@@ -130,6 +150,24 @@ export default {
     }
   },
   methods: {
+    // 打开助记面板
+    openMnemonics(word) {
+      if (!word || !word.id) return;
+      this.mnWordId = word.id;
+      this.mnWordText = word.word || '';
+      this.mnVisible = true;
+    },
+    // 助记有变动（新增/删除）→ 同步当前词的助记数
+    onMnemonicChanged(list) {
+      const n = Array.isArray(list) ? list.length : 0;
+      if (this.currentWord && this.currentWord.id === this.mnWordId) {
+        this.currentWord.mnemonicCount = n;
+      }
+      // 待收服池里的同词也同步
+      const inPool = this.reviewPool.find((w) => w.id === this.mnWordId);
+      if (inPool) inPool.mnemonicCount = n;
+      this.savePending();
+    },
     // 读取本地未结算的待收服进度
     restorePending() {
       try {
@@ -527,6 +565,22 @@ export default {
   margin-top: 24rpx;
   font-size: 24rpx;
   color: #999;
+}
+
+/* 助记入口 */
+.mn-entry {
+  display: inline-block;
+  margin-top: 20rpx;
+  padding: 10rpx 28rpx;
+  background: #fff8e1;
+  border: 2rpx solid #ffe082;
+  border-radius: 32rpx;
+}
+
+.mn-entry text {
+  font-size: 24rpx;
+  color: #e65100;
+  font-weight: bold;
 }
 
 .review-badge {

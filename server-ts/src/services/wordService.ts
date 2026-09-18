@@ -3,6 +3,7 @@ import { config } from '../config';
 import { pool } from '../db/pool';
 import { UserCardRow, WordRow } from '../types';
 import { buildAudioUrl, nextFeedSchedule } from '../utils/cardStatus';
+import { countMnemonics } from './mnemonicService';
 
 export async function getRandomWord(userId: number, bookCode: string) {
   const [rows] = await pool.execute<WordRow[]>(
@@ -26,6 +27,8 @@ export async function getRandomWord(userId: number, bookCode: string) {
     phonetic: word.phonetic,
     audioUrl: buildAudioUrl(word.word, word.audio_url),
     bookCode: word.book_code,
+    // 有无助记 → 前端决定要不要显示「查看助记」入口
+    mnemonicCount: await countMnemonics(word.id),
   };
 }
 

@@ -61,6 +61,10 @@
             <view class="challenge-reveal" @click="showFullWord = !showFullWord">
               <text>{{ showFullWord ? card.word : '👆 忘记单词了？点击查看' }}</text>
             </view>
+
+            <view v-if="card.mnemonicCount > 0" class="mn-entry" @click="openMnemonics">
+              <text>💡 记不住？看看助记（{{ card.mnemonicCount }}）</text>
+            </view>
           </view>
 
           <!-- 不可喂养时显示 -->
@@ -69,6 +73,9 @@
             <text class="meaning">{{ card.meaning }}</text>
             <text class="phonetic" v-if="card.phonetic">{{ card.phonetic }}</text>
             <AudioPlayer :src="card.audioUrl" label="听发音" />
+            <view v-if="card.mnemonicCount > 0" class="mn-entry" @click="openMnemonics">
+              <text>💡 查看助记（{{ card.mnemonicCount }}）</text>
+            </view>
             <view class="feed-info">
               <text class="deadline">{{ card.nextFeedIn }}</text>
               <text v-if="card.hasRemedialWindow" class="remedial-badge">🔄 补救喂养窗口</text>
@@ -113,6 +120,15 @@
     </view>
 
     <view v-else class="empty">加载卡牌中...</view>
+
+    <!-- 助记面板 -->
+    <MnemonicPanel
+      :visible="mnVisible"
+      :word-id="card.wordId"
+      :word="card.word"
+      @close="mnVisible = false"
+      @changed="onMnemonicChanged"
+    />
   </view>
 </template>
 
@@ -120,11 +136,12 @@
 import { getCardDetail, feedCard, hatchEgg, abandonCard, recoverHunger } from '@/api/card.js';
 import SpellInput from '@/components/SpellInput/SpellInput.vue';
 import AudioPlayer from '@/components/AudioPlayer/AudioPlayer.vue';
+import MnemonicPanel from '@/components/MnemonicPanel/MnemonicPanel.vue';
 import { cardStatusText, cardStatusColor, levelLabel, moodSymbol } from '@/utils/common.js';
 import store from '@/store/index.js';
 
 export default {
-  components: { SpellInput, AudioPlayer },
+  components: { SpellInput, AudioPlayer, MnemonicPanel },
   data() {
     return {
       cardId: null,
@@ -140,6 +157,8 @@ export default {
       inputFocused: true,
       // 本轮是否已拼满（拼满后要离开页面，不再抢焦点）
       roundDone: false,
+      // 助记面板
+      mnVisible: false,
     };
   },
   computed: {
@@ -164,6 +183,13 @@ export default {
     this.loadCard();
   },
   methods: {
+    openMnemonics() {
+      if (!this.card.wordId) return;
+      this.mnVisible = true;
+    },
+    onMnemonicChanged(list) {
+      this.card.mnemonicCount = Array.isArray(list) ? list.length : 0;
+    },
     async loadCard() {
       const res = await getCardDetail(this.cardId);
       if (res.data) {
@@ -416,6 +442,22 @@ export default {
   margin-top: 16rpx;
   background: #f5f5f5;
   border-radius: 12rpx;
+}
+
+/* 助记入口 */
+.mn-entry {
+  display: inline-block;
+  margin-top: 16rpx;
+  padding: 10rpx 28rpx;
+  background: #fff8e1;
+  border: 2rpx solid #ffe082;
+  border-radius: 32rpx;
+}
+
+.mn-entry text {
+  font-size: 24rpx;
+  color: #e65100;
+  font-weight: bold;
 }
 
 /* 金币提示 */

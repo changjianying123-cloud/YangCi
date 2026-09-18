@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import path from 'path';
+import fs from 'fs';
 import { config } from './config';
 import { initDatabase } from './db/init';
 import authRoutes from './routes/auth';
@@ -8,6 +10,8 @@ import bookRoutes from './routes/book';
 import wordRoutes from './routes/word';
 import cardRoutes from './routes/card';
 import statRoutes from './routes/stat';
+import mnemonicRoutes from './routes/mnemonic';
+import uploadRoutes from './routes/upload';
 import battleRoutes from './routes/battle';
 import adminRoutes from './routes/admin';
 import { initWs, setDisconnectHandler, setConnectHandler } from './ws/hub';
@@ -24,11 +28,18 @@ app.get('/api/health', (_req, res) => {
   res.json({ code: 200, msg: 'ok' });
 });
 
+// 上传的图片静态目录（助记配图等）
+const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/book', bookRoutes);
 app.use('/api/word', wordRoutes);
 app.use('/api/card', cardRoutes);
 app.use('/api/stat', statRoutes);
+app.use('/api/mnemonic', mnemonicRoutes);
+app.use('/api/upload', uploadRoutes);
 app.use('/api/battle', battleRoutes);
 app.use('/api/admin', adminRoutes);
 

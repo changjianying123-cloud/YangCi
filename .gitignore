@@ -11,3 +11,5 @@ dist/
 .hbuilderx/
 server-ts/scripts/_pos_backup_*.json
 server-ts/scripts/_*.cjs
+# 用户上传的图片（助记配图等），不入库
+server-ts/uploads/

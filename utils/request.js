@@ -1,4 +1,7 @@
-// 本地测试环境；上线时改回线上地址 http://47.251.168.98:3000/api
+// 本地测试环境；上线时改回线上地址 https://47.251.168.98:3000/api
+//https://spritecreate.com/api
+//http://localhost:3000/api
+// const BASE_URL = 'https://spritecreate.com/api';
 const BASE_URL = 'http://localhost:3000/api';
 const TOKEN_KEY = 'yangci_token';
 
@@ -63,3 +66,16 @@ export function request(url, options = {}) {
 }
 
 export { BASE_URL, TOKEN_KEY, getToken };
+
+/**
+ * 把后端返回的相对图片地址补成绝对地址。
+ * 助记/头像等图片存在 /uploads/... 下，小程序 <image> 不认相对路径，
+ * 必须拼上服务端域名（BASE_URL 去掉末尾的 /api）。
+ */
+export function toAbsoluteUrl(url) {
+  if (!url) return '';
+  const s = String(url);
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s;
+  const origin = BASE_URL.replace(/\/api\/?$/, '');
+  return origin + (s.startsWith('/') ? s : '/' + s);
+}

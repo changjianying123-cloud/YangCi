@@ -288,5 +288,23 @@ export async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 助记升级：区分「官方助记」与「用户发布的助记」
+  //  user_id 为 NULL → 官方（后台发布）；非 NULL → 该用户发布
+  await addColumnIfMissing('word_mnemonics', 'user_id', 'INT DEFAULT NULL');
+  await addColumnIfMissing('word_mnemonics', 'like_count', 'INT NOT NULL DEFAULT 0');
+  await addColumnIfMissing('word_mnemonics', 'status', "TINYINT NOT NULL DEFAULT 1"); // 1正常 0被管理员隐藏
+
+  // 每人对每条助记只能点赞一次
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS mnemonic_likes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mnemonic_id INT NOT NULL,
+      user_id INT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_mnemonic_user (mnemonic_id, user_id),
+      INDEX idx_mnemonic (mnemonic_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   console.log('MySQL 数据库表初始化完成');
 }

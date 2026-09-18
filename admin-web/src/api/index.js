@@ -66,6 +66,7 @@ export const wordApi = {
   addMnemonic: (wordId, data) => api.post(`/admin/words/${wordId}/mnemonics`, data),
   updateMnemonic: (id, data) => api.put(`/admin/mnemonics/${id}`, data),
   removeMnemonic: (id) => api.delete(`/admin/mnemonics/${id}`),
+  setMnemonicStatus: (id, status) => api.post(`/admin/mnemonics/${id}/status`, { status }),
 
   // 导入 / 导出
   importWords: (csv, mode = 'append') => api.post('/admin/words/import', { csv, mode }),
