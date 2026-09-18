@@ -145,7 +145,8 @@ export interface BattleSide {
   userId: number;      // AI 用 -1；真人 PvP 为真实 userId
   nickname: string;
   units: BattleUnit[];           // 全部单位(含阵亡)按出征顺序；阵亡只置 dead=true 不移除，便于阵亡列显示
-  queue: number[];               // 当前“站立队列”：未阵亡单位的 cardId 顺序——首位=最前，前4=前排，其余=后排；行动单位移到队尾、阵亡移除、复活加回队尾
+  queue: number[];               // 【派生】两列拼接的站立队列 = [...col0, ...col1]；只读用，改顺序请改 cols
+  cols?: number[][];             // ⭐ 两列模型：[左列, 右列]，各自独立的站立顺序。每列最前 2 个可行动；敌方每列最前 1 个可被攻击
   deployed?: boolean;            // 真人 PvP：该方是否已布阵
 }
 

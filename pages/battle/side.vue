@@ -7,27 +7,26 @@
       <text v-if="deadUnits.length" class="dead-chip">☠ {{ deadUnits.length }}</text>
     </view>
 
-    <!-- 活着：两列网格，每行 2 个单词。前两行为一线（可行动 / 可被攻击） -->
+    <!-- 两列独立的纵向队列：每列自上而下，列内不与其他列互通（出手/阵亡只在列内前移） -->
     <view class="grid">
       <view
-        v-for="(row, ri) in liveRows"
-        :key="'r' + ri"
-        class="grid-row"
-        :class="ri === frontRowIndex ? 'front-row' : 'back-row'"
+        v-for="(col, ci) in liveCols"
+        :key="'col' + ci"
+        class="grid-col"
       >
         <view
-          v-for="(u, ci) in row"
-          :key="'c' + ri + '_' + ci"
+          v-for="(cell, ri) in col"
+          :key="'c' + ci + '_' + ri"
           class="cell"
           :class="[
-            ri === frontRowIndex ? 'front' : 'back',
-            u && ri < 2 && actableIds.indexOf(u.cardId) >= 0 ? 'actable' : '',
-            u && targetIds.indexOf(u.cardId) >= 0 ? 'targetable' : '',
-            u && dimId === u.cardId ? 'dim' : '',
+            cell.isFront ? 'front' : 'back',
+            cell.u && cell.isFront && actableIds.indexOf(cell.u.cardId) >= 0 ? 'actable' : '',
+            cell.u && targetIds.indexOf(cell.u.cardId) >= 0 ? 'targetable' : '',
+            cell.u && dimId === cell.u.cardId ? 'dim' : '',
           ]"
-          @click="u && onTap(u)"
+          @click="cell.u && onTap(cell.u)"
         >
-          <UnitCard v-if="u" :u="u" />
+          <UnitCard v-if="cell.u" :u="cell.u" />
           <view v-else class="empty-slot">空位</view>
         </view>
       </view>
@@ -67,33 +66,44 @@ export default {
     flip: { type: Boolean, default: false },
   },
   computed: {
-    standing() {
-      return (this.side.queue || [])
-        .map((id) => this.side.units.find((x) => x.cardId === id))
-        .filter((x) => x && !x.dead);
+    // 两列站立顺序（未阵亡）
+    standingCols() {
+      const side = this.side || {};
+      const units = side.units || [];
+      const byId = {};
+      units.forEach((u) => { byId[u.cardId] = u; });
+      const cols = Array.isArray(side.cols) && side.cols.length
+        ? side.cols
+        : this.fallbackCols(side.queue || []);
+      return cols.map((c) => (c || []).map((id) => byId[id]).filter((u) => u && !u.dead));
     },
     deadUnits() {
-      return this.side.units.filter((x) => x.dead);
+      return (this.side.units || []).filter((x) => x.dead);
     },
-    // 存活单位按队列顺序填充 2×2（前两行），缺的位用 null 占空
-    liveRows() {
-      const live = this.standing.slice(0, 4);
-      const cells = [...live];
-      while (cells.length < 4) cells.push(null);
-      const rows = [cells.slice(0, 2), cells.slice(2, 4)];
-      // 敌方翻转：第一排（活着的队首 2 个）显示在靠下（贴近中线）的那一行
-      return this.flip ? [rows[1], rows[0]] : rows;
-    },
-    // 实际的行是否属于“一线”（前排）：翻转后靠下那行才是前排
-    frontRowIndex() {
-      return this.flip ? 1 : 0;
+    // 每列可行动的前 N 个
+    frontSize() { return 2; },
+    // 渲染用：每列自上而下的卡片；空位补 null 到至少 MIN_ROWS 行
+    // 返回元素形如 { u, isFront }（isFront 按**原始站立序**判定，不受翻转影响）
+    liveCols() {
+      const MIN_ROWS = 4;
+      return this.standingCols.map((col) => {
+        const cells = col.map((u, i) => ({ u, isFront: i < this.frontSize }));
+        if (this.flip) cells.reverse(); // 敌方：最前排靠近中线（下方）显示
+        while (cells.length < MIN_ROWS) cells.push({ u: null, isFront: false });
+        return cells;
+      });
     },
     revivableIds() {
-      // 与后端 canRevive 一致：阵亡 + 未出过手 + 本局未复活过 + 【本局从未出手拼写过】
-      return this.side.units.filter((x) => x.dead && !x.usedSkill && !x.revived && !x.spelledOnce).map((x) => x.cardId);
+      return (this.side.units || []).filter((x) => x.dead && !x.usedSkill && !x.revived && !x.spelledOnce).map((x) => x.cardId);
     },
   },
   methods: {
+    // 旧存档无 cols：按奇偶位拆两列
+    fallbackCols(queue) {
+      const a = []; const b = [];
+      queue.forEach((id, i) => { (i % 2 === 0 ? a : b).push(id); });
+      return [a, b];
+    },
     onTap(u) {
       if (u.dead) return; // 阵亡不可行动；复活走独立按钮
       this.$emit('unit-click', u);
@@ -110,11 +120,12 @@ export default {
 .turn-chip { font-size: 18rpx; color: #12243c; background: #ffd54f; border-radius: 18rpx; padding: 2rpx 12rpx; }
 .troop-chip { font-size: 18rpx; color: #90caf9; background: #16273d; border-radius: 16rpx; padding: 2rpx 12rpx; margin-left: 6rpx; }
 
-.grid { display: flex; flex-direction: column; gap: 12rpx; }
-.grid-row { display: flex; gap: 16rpx; }
-.cell { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; border-radius: 14rpx; }
-.grid-row.front-row .cell { background: rgba(255, 213, 79, .07); }
-.grid-row.back-row { opacity: .82; }
+.grid { display: flex; flex-direction: row; gap: 16rpx; align-items: flex-start; }
+/* 每一列：独立纵向队列（自上而下） */
+.grid-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12rpx; }
+.cell { width: 100%; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; border-radius: 14rpx; }
+.cell.front { background: rgba(255, 213, 79, .07); }
+.cell.back { opacity: .82; }
 .cell.actable { box-shadow: 0 0 0 3rpx #ffd54f; animation: breathe 1.4s infinite; border-radius: 14rpx; }
 .cell.targetable { box-shadow: 0 0 0 4rpx #ffd54f; animation: pulse 1s infinite; border-radius: 14rpx; }
 .cell.dim { opacity: .4; }

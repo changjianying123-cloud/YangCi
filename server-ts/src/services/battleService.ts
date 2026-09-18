@@ -77,7 +77,7 @@ export { rolesOf, fetchBattlePool };
 export type { PickedWord as PickedWordType };
 
 /** 把词池组一支部队（PvP 复用），返回 units+queue；不设壁垒，由调用方处理 */
-export function buildSide(poolWords: PickedWord[], sizeOverride?: number): { units: BattleUnit[]; queue: number[] } {
+export function buildSide(poolWords: PickedWord[], sizeOverride?: number): { units: BattleUnit[]; cols: number[][]; queue: number[] } {
   return formSide(poolWords, sizeOverride);
 }
 
@@ -90,7 +90,7 @@ export function buildSide(poolWords: PickedWord[], sizeOverride?: number): { uni
  *   - ⭐ 方案 C：每个词的词性**只取它的第一词性**，一局内固定不变（不再“改编”多词性词）
  * 若词不足 BL.TROOP_SIZE 则有多少用多少；若整个词池一个动词都没有，则**不允许开战**（由调用方拦下）。
  */
-function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: BattleUnit[]; queue: number[] } {
+function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: BattleUnit[]; cols: number[][]; queue: number[] } {
   const byRole: Record<BattleRole, PickedWord[]> = { noun: [], adjective: [], verb: [], adverb: [] };
   for (const c of poolWords) for (const r of rolesOf(c)) byRole[r].push(c);
 
@@ -147,7 +147,12 @@ function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: Batt
     revived: false,
     spelledOnce: false,
   }));
-  return { units, queue: units.map((u) => u.cardId) };
+  // ⭐ 两列模型：出征顺序按奇偶位分到左右两列（第0个→左列，第1个→右列，...）
+  const col0: number[] = [];
+  const col1: number[] = [];
+  units.forEach((u, i) => { (i % 2 === 0 ? col0 : col1).push(u.cardId); });
+  const cols = [col0, col1];
+  return { units, cols, queue: col0.concat(col1) };
 }
 
 // ---------- 建局 ----------
@@ -194,8 +199,8 @@ export async function createBattle(
     mode: 'rookie',
     // 拼写模式：en-spell=给英文卡牌拼英文（同喂养）/ zh-spell=给英文卡牌拼中文（同玩耍）
     spellMode: spellMode === 'zh-spell' ? 'zh-spell' : 'en-spell',
-    player: { userId: playerUserId, nickname, units: player.units, queue: [...player.queue] },
-    enemy: { userId: -1, nickname: '🤖 AI', units: enemy.units, queue: [...enemy.queue] },
+    player: { userId: playerUserId, nickname, units: player.units, cols: player.cols.map((c) => [...c]), queue: [...player.queue] },
+    enemy: { userId: -1, nickname: '🤖 AI', units: enemy.units, cols: enemy.cols.map((c) => [...c]), queue: [...enemy.queue] },
     log: ['⚔️ 对战开始！你是先手。拼写正确即可触发词性技能。'],
   };
   if ((snap as BattleSnapshot).spellMode === 'zh-spell') {
@@ -211,7 +216,7 @@ export async function createBattle(
   return { battleId, snap };
 }
 
-/** 布阵：玩家在开战前自定义自己 5 个参战单词的出场顺序（队列顺序=站位：前 FRONT_SIZE 个为一线） */
+/** 布阵：玩家在开战前自定义自己 5 个参战单词的出场顺序（两列制：奇数位→左列，偶数位→右列） */
 export async function deployBattle(
   battleId: number,
   playerUserId: number,
@@ -228,7 +233,12 @@ export async function deployBattle(
   const ids = me.units.map((u) => u.cardId);
   const clean = (order || []).filter((id) => ids.includes(id));
   for (const id of ids) if (!clean.includes(id)) clean.push(id);
-  me.queue = clean;
+  // ⭐ 两列模型：布阵顺序按奇偶位分列（第0个→左列，第1个→右列，...）
+  const col0: number[] = [];
+  const col1: number[] = [];
+  clean.forEach((id, i) => { (i % 2 === 0 ? col0 : col1).push(id); });
+  me.cols = [col0, col1];
+  me.queue = col0.concat(col1);
   me.deployed = true;
 
   if (isPvp(snap)) {
@@ -505,9 +515,8 @@ function aiAct(snap: BattleSnapshot) {
   const me = snap.enemy;
   BL.cleanupQueue(me);
   BL.cleanupQueue(snap.player);
-  // 只取本回合还没出过手的前排词
-  const myFront = BL.standingQueue(me).slice(0, BL.FRONT_SIZE)
-    .map((id) => me.units.find((x) => x.cardId === id))
+  // 只取本回合还没出过手的前排词（两列模型：每列前 2 个，共 4 个）
+  const myFront = BL.frontUnits(me)
     .filter((u): u is any => !!u && !u.dead && !u.usedSkill);
   if (myFront.length === 0) return; // 前排都行动过了
 

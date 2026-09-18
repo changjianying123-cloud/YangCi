@@ -3,8 +3,9 @@ import { BattleRole, BattleSnapshot, BattleUnit } from '../types';
 // ===== 单词对战：纯战斗逻辑（无 I/O，便于单测 & 将来服务端裁决复用）=====
 
 export const TURN_SECONDS = 30;
-export const FRONT_SIZE = 2;     // 可行动行数：两列模型下每方「前两行」可行动
-export const NPCS_FRONT = 2;     // 可被攻击的行数（= 前两行）
+export const FRONT_SIZE = 2;     // 每列可行动行数：两列模型下每列「前两行」可行动（共 4 个）
+export const NPCS_FRONT = 1;     // 每列可被攻击的行数（敌方每列最前 1 个，共 2 个）
+export const COL_COUNT = 2;      // 列数（左右两列）
 export const TROOP_SIZE = 5;     // 每边默认出征数量
 // 两列模型：左列=我方，右列=敌方，每列纵向排列 5 个单词位。
 // 「前两行」为一线（可行动 / 可被攻击），其余为后备行。
@@ -30,9 +31,39 @@ export const SHIELD_BUFF_CAP = 3; // 形容词叠加的「护盾强度」上限�
 
 // ---------- 工具 ----------
 
-export function standingQueue(side: { queue: number[]; units: BattleUnit[] }): number[] {
-  // 站立队列 = 未阵亡单位的顺序（防御死亡间隙，确保“前移”）
-  return side.queue.filter((id) => {
+type SideLike = { queue: number[]; units: BattleUnit[]; cols?: number[][] };
+
+/** 取（或初始化）两列。旧存档没有 cols → 用 queue 按奇偶位拆成两列（向左列归偶数位）。 */
+export function getCols(side: SideLike): number[][] {
+  if (!side.cols || !Array.isArray(side.cols) || side.cols.length < COL_COUNT) {
+    // 迁移：queue 的第 0,2,4... 个 → 左列；第 1,3,5... 个 → 右列
+    const c0: number[] = [];
+    const c1: number[] = [];
+    (side.queue || []).forEach((id, i) => { (i % 2 === 0 ? c0 : c1).push(id); });
+    side.cols = [c0, c1];
+  }
+  return side.cols;
+}
+
+/** 把 cols 同步回 queue（两列拼接），保持 queue 字段对旧代码只读兼容。 */
+export function syncQueue(side: SideLike): void {
+  const cols = getCols(side);
+  side.queue = cols[0].concat(cols[1]);
+}
+
+/** 站立队列 = 两列未阵亡单位的拼接顺序 */
+export function standingQueue(side: SideLike): number[] {
+  const cols = getCols(side);
+  return [...cols[0], ...cols[1]].filter((id) => {
+    const u = side.units.find((x) => x.cardId === id);
+    return u && !u.dead;
+  });
+}
+
+/** 某列的站立顺序（未阵亡） */
+export function standingCol(side: SideLike, ci: number): number[] {
+  const cols = getCols(side);
+  return (cols[ci] || []).filter((id) => {
     const u = side.units.find((x) => x.cardId === id);
     return u && !u.dead;
   });
@@ -42,30 +73,43 @@ export function findUnit(side: { units: BattleUnit[] }, cardId: number): BattleU
   return side.units.find((x) => x.cardId === cardId);
 }
 
-/** 我方 front 单位（站立队首，至多 FRONT_SIZE 个，全部可行动） */
-export function frontUnits(side: { queue: number[]; units: BattleUnit[] }): BattleUnit[] {
-  return standingQueue(side)
-    .slice(0, FRONT_SIZE)
-    .map((id) => findUnit(side, id)!)
-    .filter(Boolean);
+/** 某词在哪一列（0/1）；不在场返回 -1 */
+export function colOf(side: SideLike, cardId: number): number {
+  const cols = getCols(side);
+  return cols.findIndex((c) => c.indexOf(cardId) >= 0);
 }
 
-/** 敌方可攻击目标：敌方站立队首前2个 */
-export function attackableTargets(side: { queue: number[]; units: BattleUnit[] }): BattleUnit[] {
-  return standingQueue(side)
-    .slice(0, NPCS_FRONT)
-    .map((id) => findUnit(side, id)!)
-    .filter(Boolean);
+/** 我方 front 单位（每列站立队首前 FRONT_SIZE 个，左右共 2×FRONT_SIZE 个，全部可行动） */
+export function frontUnits(side: SideLike): BattleUnit[] {
+  const cols = getCols(side);
+  const out: BattleUnit[] = [];
+  for (let ci = 0; ci < COL_COUNT; ci++) {
+    standingCol(side, ci)
+      .slice(0, FRONT_SIZE)
+      .forEach((id) => { const u = findUnit(side, id); if (u) out.push(u); });
+  }
+  return out;
+}
+
+/** 敌方可攻击目标：敌方**每列**站立队首前 NPCS_FRONT 个（共 2 个） */
+export function attackableTargets(side: SideLike): BattleUnit[] {
+  const out: BattleUnit[] = [];
+  for (let ci = 0; ci < COL_COUNT; ci++) {
+    standingCol(side, ci)
+      .slice(0, NPCS_FRONT)
+      .forEach((id) => { const u = findUnit(side, id); if (u) out.push(u); });
+  }
+  return out;
 }
 
 /** 出站单位排位方向信息（给前端渲染槽位用） */
-export function unitPosition(side: { queue: number[]; units: BattleUnit[] }, cardId: number): 'front' | 'back' | 'dead' {
+export function unitPosition(side: SideLike, cardId: number): 'front' | 'back' | 'dead' {
   const u = findUnit(side, cardId);
   if (!u || u.dead) return 'dead';
-  const sq = standingQueue(side);
-  const idx = sq.indexOf(cardId);
-  if (idx < 0) return 'dead';
-  return idx < FRONT_SIZE ? 'front' : 'back';
+  const ci = colOf(side, cardId);
+  if (ci < 0) return 'dead';
+  const idx = standingCol(side, ci).indexOf(cardId);
+  return idx >= 0 && idx < FRONT_SIZE ? 'front' : 'back';
 }
 
 // ---------- 阵亡/复活 ----------
@@ -134,10 +178,12 @@ export function useFrontSkill(
   const u = findUnit(me, unitCardId);
   if (!u) throw new Error('单词不存在');
   if (u.dead) throw new Error('该单词已阵亡');
-  // 必须在前排
-  const sq = standingQueue(me);
-  if (sq.indexOf(unitCardId) < 0 || sq.indexOf(unitCardId) >= FRONT_SIZE) {
-    throw new Error('只有前排单词能行动');
+  // 必须在本列前排
+  const ci = colOf(me, unitCardId);
+  if (ci < 0) throw new Error('该单词不在场上');
+  const idxInCol = standingCol(me, ci).indexOf(unitCardId);
+  if (idxInCol < 0 || idxInCol >= FRONT_SIZE) {
+    throw new Error('只有每列前排的单词能行动');
   }
 
   // 先结算技能
@@ -233,27 +279,27 @@ export function useFrontSkill(
 
   return outcome;
 }
-/** 行动单位出手后退到「后排」待命（同回合内不再轮到它）。
- *  两列模型：前排=本回合可行动列，后排=本回合已出手/待命列。
- *  具体做法：将该词从排队列中移到「所有未出手单位之后」，这样前排空位会由后排未出手的词补上。 */
-export function moveToBack(side: { queue: number[]; units: BattleUnit[] }, cardId: number) {
-  const sq = standingQueue(side);
-  if (sq.indexOf(cardId) < 0) return;
-  const rest = sq.filter((id) => id !== cardId);
-  // 分为：未出手的（优先留在前面） vs 已出手的
+/** 行动单位出手后退到**本列**队尾待命（同回合内不再轮到它）。
+ *  两列模型：单词只能在本列内纵向移动，绝不横移。
+ *  做法：在本列内，把该词移到「本列所有未出手单位之后」。 */
+export function moveToBack(side: SideLike, cardId: number) {
+  const cols = getCols(side);
+  const ci = cols.findIndex((c) => c.indexOf(cardId) >= 0);
+  if (ci < 0) return;
+  const col = cols[ci];
+  const rest = col.filter((id) => id !== cardId);
   const pending = rest.filter((id) => {
     const u = findUnit(side, id);
     return u && !u.dead && !u.usedSkill;
   });
   const done = rest.filter((id) => !pending.includes(id));
-  side.queue = [...pending, ...done, cardId];
+  cols[ci] = [...pending, ...done, cardId];
+  syncQueue(side);
 }
 
-/** 回合末：把所有未阵亡单位按当前排队重排，预备下一回合
- *  （前排=队列前 FRONT_SIZE 个；理论上此时 usedSkill 已全部重置） */
-export function promoteBackline(side: { queue: number[]; units: BattleUnit[] }) {
-  // 保持队列顺序即可；真正的“前排满员”由回合末 resetTurnFlags + 队列顺序保证
-  side.queue = standingQueue(side);
+/** 回合末：[已无实际作用] 两列模型下顺序已由 cols 维护 */
+export function promoteBackline(side: SideLike) {
+  syncQueue(side);
 }
 
 /** 回合末重置所有存活单位的「本回合已出手」标记，让它们下一回合能再次行动 */
@@ -266,12 +312,16 @@ export function resetTurnFlags(side: { queue: number[]; units: BattleUnit[] }) {
   }
 }
 
-/** 清理队列：去掉已阵亡单位(死亡自动前排前移/remove) */
-export function cleanupQueue(side: { queue: number[]; units: BattleUnit[] }) {
-  side.queue = side.queue.filter((id) => {
-    const u = side.units.find((x) => x.cardId === id);
-    return u && !u.dead;
-  });
+/** 清理队列：从两列中各自去掉已阵亡单位（列内前移，不横移） */
+export function cleanupQueue(side: SideLike) {
+  const cols = getCols(side);
+  for (let ci = 0; ci < COL_COUNT; ci++) {
+    cols[ci] = cols[ci].filter((id, _i, _a) => {
+      const u = side.units.find((x) => x.cardId === id);
+      return u && !u.dead;
+    });
+  }
+  syncQueue(side);
 }
 
 /** 尝试复活一个“可复活”单位(作为行动)：拼写正确→复活回队尾；错误→彻底消失(该词本局无法再复活但不删 units,只移出队列并 dead=true,revived 置为阻复) */
@@ -292,20 +342,24 @@ export function tryRevive(
     u.revived = true; // 标记为“已结算复活”，不可再复活
     return { log: `复活 ${u.word} 失败，它彻底阵亡了` };
   }
-  // 成功：回部队(加回站立队尾=最后排)。一击必杀制下复活单位无屏障，随时可能再被秒
+  // 成功：回部队（加回原列末尾；记不得原列则回人少的那列）。一击必杀制下复活单位无屏障，随时可能再被秒
   u.dead = false;
   u.revived = true;
   u.usedSkill = true; // 以后就算再阵亡也不可复活(已经用过一次复活机会)
   u.hp = u.maxHp || 1;
-  me.queue.push(u.cardId);
-  return { log: `${u.word} 拼写正确，成功复活！(无屏障，回到队尾)` };
+  const cols = getCols(me);
+  const back = cols.findIndex((c) => c.indexOf(u.cardId) >= 0);
+  const ci = back >= 0 ? back : (standingCol(me, 0).length <= standingCol(me, 1).length ? 0 : 1);
+  cols[ci].push(u.cardId);
+  syncQueue(me);
+  return { log: `${u.word} 拼写正确，成功复活！(无屏障，回到第${ci === 0 ? '左' : '右'}列末尾)` };
 }
 
 // ---------- 胜负判定 ----------
 
 /** 打满回合的兜底决胜：一击必杀制下按剩余存活数 + 总护盾层数判定；仍平就判玩家胜 */
 export function suddenDeath(snap: BattleSnapshot): void {
-  const score = (side: { queue: number[]; units: BattleUnit[] }) => {
+  const score = (side: SideLike) => {
     const alive = standingQueue(side).map((id) => findUnit(side, id)!);
     const shield = alive.reduce((s, u) => s + (u.shield || 0), 0);
     return { count: alive.length, shield };
@@ -323,15 +377,15 @@ export function suddenDeath(snap: BattleSnapshot): void {
 }
 
 /** 某方是否还有站立(未阵亡)单位 */
-export function hasStanding(side: { queue: number[]; units: BattleUnit[] }): boolean {
+export function hasStanding(side: SideLike): boolean {
   return standingQueue(side).length > 0;
 }
 
 /** 是否有攻击手(动词)可造成伤害 */
-export function hasVerb(side: { queue: number[]; units: BattleUnit[] }): boolean {
+export function hasVerb(side: SideLike): boolean {
   return standingQueue(side)
     .map((id) => findUnit(side, id)!)
-    .some((u) => u.role === 'verb');
+    .some((u) => u && u.role === 'verb');
 }
 
 /**
@@ -339,7 +393,7 @@ export function hasVerb(side: { queue: number[]; units: BattleUnit[] }): boolean
  * 从前：若全队没有任何动词，把第一个存活单位“兼职”成动词。
  * 现在：词性一局内固定不变，**不再调用**（保留函数以免外部引用报错）。
  */
-export function ensureVerb(_side: { queue: number[]; units: BattleUnit[] }): void {
+export function ensureVerb(_side: SideLike): void {
   /* no-op（方案 C：词性固定，不中途改编） */
 }
 

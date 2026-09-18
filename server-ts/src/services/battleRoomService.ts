@@ -335,8 +335,8 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
     spellMode: 'zh-spell' as const,
     bet: room.bet,
     roomId: room.id,
-    player: { userId: o, nickname: n0, units: player.units, queue: [...player.queue], deployed: true },
-    enemy: { userId: g, nickname: n1, units: enemy.units, queue: [...enemy.queue], deployed: true },
+    player: { userId: o, nickname: n0, units: player.units, cols: player.cols.map((c) => [...c]), queue: [...player.queue], deployed: true },
+    enemy: { userId: g, nickname: n1, units: enemy.units, cols: enemy.cols.map((c) => [...c]), queue: [...enemy.queue], deployed: true },
     log: [`💰 双方已准备就绪，开战！赢家拿走 ${room.bet * 2} 金币。`],
   };
   const [ins] = await pool.execute<ResultSetHeader>(
@@ -352,11 +352,16 @@ async function startRoomBattle(room: BattleRoomRow): Promise<number> {
   return ins.insertId;
 }
 
-function applyOrder(side: { units: { cardId: number }[]; queue: number[] }, order: number[]) {
+function applyOrder(side: { units: { cardId: number }[]; queue: number[]; cols?: number[][] }, order: number[]) {
   const ids = side.units.map((u) => u.cardId);
   const clean = order.filter((id) => ids.includes(id));
   for (const id of ids) if (!clean.includes(id)) clean.push(id);
-  side.queue = clean;
+  // ⭐ 两列模型：布阵顺序按奇偶位分列（第0个→左列，第1个→右列，...）
+  const col0: number[] = [];
+  const col1: number[] = [];
+  clean.forEach((id, i) => { (i % 2 === 0 ? col0 : col1).push(id); });
+  side.cols = [col0, col1];
+  side.queue = col0.concat(col1);
 }
 
 async function getNickname(userId: number): Promise<string> {

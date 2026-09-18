@@ -46,21 +46,27 @@
         <!-- 布阵阶段：2 分钟倒计时 + 调整站位 -->
         <view v-if="room.status === 'deploy'" class="room-deploy">
           <text class="room-deploy-tip">🎯 布阵阶段 · 剩余 <b>{{ room.deployLeft }}</b> 秒</text>
-          <text class="room-deploy-sub">拖动/点击两两交换站位，<b>前 2 位为一线</b>（可出手/被打）</text>
-          <view class="room-deploy-list">
-            <view
-              v-for="(u, i) in roomDeployUnits"
-              :key="u.cardId"
-              class="room-deploy-item"
-              :class="{ picked: deployPick === u.cardId, frontline: i < 2 }"
-              @click="pickDeploy(u)"
-            >
-              <text class="rdi-idx">{{ i + 1 }}</text>
-              <view class="rdi-main">
-                <text class="rdi-word">{{ u.word }}</text>
-                <text class="rdi-pos">{{ posLabel(u.pos) }}</text>
+          <text class="room-deploy-sub">拖动/点击两张互换站位（可跨列），<b>每列前 2 位可出手</b>、敌每列最前 1 位可被打</text>
+          <view class="deploy-cols">
+            <view v-for="(col, ci) in roomDeployCols" :key="'rdc' + ci" class="deploy-col">
+              <text class="deploy-col-title">{{ ci === 0 ? '左列' : '右列' }}</text>
+              <view
+                v-for="(u, ri) in col"
+                :key="u.cardId"
+                class="room-deploy-item"
+                :class="{ picked: deployPick === u.cardId, frontline: ri < 2 }"
+                @click="pickDeploy(u)"
+              >
+                <text class="rdi-idx">{{ ri + 1 }}</text>
+                <view class="rdi-main">
+                  <text class="rdi-word">{{ u.word }}</text>
+                  <text class="rdi-pos">{{ posLabel(u.pos) }}</text>
+                </view>
+                <text v-if="ri < 2" class="rdi-line">一线</text>
               </view>
-              <text v-if="i < 2" class="rdi-line">一线</text>
+              <view v-for="n in Math.max(0, 2 - col.length)" :key="'re' + n" class="room-deploy-item empty">
+                <text class="rdi-word">空位</text>
+              </view>
             </view>
           </view>
           <button class="start-btn gold" :disabled="deploying" @click="onDeploy">
@@ -196,7 +202,7 @@
         <view class="rule"><text class="tag a">副词</text><text class="rt">拼对 → 给某动词 +1 攻击层（每层=破盾时直接击穿击杀）</text></view>
       </view>
       <view class="mini-tip">
-        🎯 两军上下交战：上面敌军、下面我军，每方两列、每行 2 个单词。<b>前两行可行动</b>（金色描边=本回合还能出手），下面为后备行（前两行阵亡后自动补位）。
+        🎯 两军上下交战：上面敌军、下面我军，每方<b>左右两列</b>、列内纵向排队。<b>每列前 2 个可行动</b>（金色描边=本回合还能出手），敌方<b>每列最前 1 个</b>可被攻击。列内不互通，前排出局后同列自动前移。
         <br />🛡️ <b>一击必杀制</b>：没有血量，屏障就是命。无屏障的词一旦被动词命中就**直接阵亡**。
         <br />⚔️ 屏障每层能挡下一次攻击（最多 3 层）；被破盾的单词本回合无法续盾。
         <br />⚔️ 动词有副词加成时，破盾的同时直接击穿击杀。
@@ -244,21 +250,27 @@
         </view>
       </view>
 
-      <!-- 布阵阶段：拖阵/点选换位，展示全部参战单词 -->
+      <!-- 布阵阶段：两列拖拽排位，展示全部参战单词 -->
       <view v-if="!deployed" class="deploy-bar">
-        <text class="deploy-tip">🎯 排站位：队列顺序 = 站位。<b>前 2 位为一线</b>（可行动 / 先挨打），后方为后备。点两个单词可互换位置。核对敌军阵容后开战。</text>
-        <view class="deploy-list">
-          <view
-            v-for="(u, i) in deployUnits"
-            :key="u.cardId"
-            class="deploy-item"
-            :class="{ picked: deployPick === u.cardId, frontline: i < 2 }"
-            @click="pickDeploy(u)"
-          >
-            <text class="di-idx">{{ i + 1 }}</text>
-            <text class="di-word">{{ u.word }}</text>
-            <text class="di-role">{{ roleZh(u.role) }}</text>
-            <text class="di-pos">{{ i < 2 ? '一线' : '后备' }}</text>
+        <text class="deploy-tip">🎯 排站位：<b>左列/右列各自独立</b>，每列<b>前 2 位</b>可行动；敌方每列<b>最前 1 位</b>可被攻击。拖动卡片可换位（也可点击两张互换）。</text>
+        <view class="deploy-cols">
+          <view v-for="(col, ci) in deployCols" :key="'dc' + ci" class="deploy-col">
+            <text class="deploy-col-title">{{ ci === 0 ? '左列' : '右列' }}</text>
+            <view
+              v-for="(u, ri) in col"
+              :key="u.cardId"
+              class="deploy-item"
+              :class="{ picked: deployPick === u.cardId, frontline: ri < 2 }"
+              @click="pickDeploy(u)"
+            >
+              <text class="di-idx">{{ ri + 1 }}</text>
+              <text class="di-word">{{ u.word }}</text>
+              <text class="di-role">{{ roleZh(u.role) }}</text>
+              <text class="di-pos">{{ ri < 2 ? '一线' : '后备' }}</text>
+            </view>
+            <view v-for="n in Math.max(0, 2 - col.length)" :key="'e' + n" class="deploy-item empty">
+              <text class="di-word">空位</text>
+            </view>
           </view>
         </view>
         <button class="deploy-btn" :disabled="deploying" @click="onDeploy">{{ deploying ? '…' : '🚩 开战！' }}</button>
@@ -491,20 +503,28 @@ export default {
     timerPct() {
       return Math.max(0, Math.min(100, (this.timer / this.turnLen) * 100));
     },
+    // 每列可行动前 N 个（与后端 FRONT_SIZE 一致）
     myFront() {
       if (!this.snap || !this.me) return [];
-      const q = this.me.queue.slice(0, 2); // 前两行 = 可行动
-      return q.map((id) => this.me.units.find((x) => x.cardId === id)).filter((x) => x && !x.dead);
+      return this.frontOf(this.me);
     },
     myStanding() {
       if (!this.snap || !this.me) return [];
-      return this.me.queue.map((id) => this.me.units.find((x) => x.cardId === id)).filter((x) => x && !x.dead);
+      const cols = this.colsOf(this.me);
+      const byId = (id) => this.me.units.find((x) => x.cardId === id);
+      return cols[0].concat(cols[1]).map(byId).filter((x) => x && !x.dead);
     },
     enemyFront2() {
       if (!this.snap || !this.foe) return [];
-      return this.foe.queue.slice(0, 2)
-        .map((id) => this.foe.units.find((x) => x.cardId === id))
-        .filter((x) => x && !x.dead);
+      // 可被攻击：敌方**每列**最前 1 个（共 2 个）
+      const cols = this.colsOf(this.foe);
+      const byId = (id) => this.foe.units.find((x) => x.cardId === id);
+      const out = [];
+      cols.forEach((c) => {
+        const u = c.map(byId).find((x) => x && !x.dead);
+        if (u) out.push(u);
+      });
+      return out;
     },
     myLabel() {
       return (this.me && this.me.nickname) || '我方';
@@ -512,7 +532,7 @@ export default {
     enemyLabel() {
       return (this.foe && this.foe.nickname) || '敌方';
     },
-    // 我方本轮可行动的卡（前两行，本回合未出手）
+    // 我方本轮可行动的卡（每列前 2 个，本回合未出手）
     myActable() {
       return this.myFront.filter((u) => !u.usedSkill);
     },
@@ -523,6 +543,23 @@ export default {
     iLose() {
       return !!this.snap && this.snap.over && this.snap.winner != null && this.snap.winner !== this.mySideIdx;
     },
+    // 两列（兼容旧存档：无 cols 时按奇偶位拆）
+    colsOf(side) {
+      if (!side) return [[], []];
+      const alive = (id) => { const u = (side.units || []).find((x) => x.cardId === id); return u && !u.dead; };
+      if (Array.isArray(side.cols) && side.cols.length) return side.cols.map((c) => (c || []).filter(alive));
+      const a = []; const b = [];
+      (side.queue || []).filter(alive).forEach((id, i) => { (i % 2 === 0 ? a : b).push(id); });
+      return [a, b];
+    },
+    // 某列前 2 个可行动单位
+    frontOf(side) {
+      const out = [];
+      this.colsOf(side).forEach((c) => {
+        c.slice(0, 2).forEach((id) => { const u = (side.units || []).find((x) => x.cardId === id); if (u && !u.dead) out.push(u); });
+      });
+      return out;
+    },
     // 布阵阶段：按 deployOrder 渲染我方参战单词（全部）
     deployUnits() {
       const us = (this.me && this.me.units) || [];
@@ -532,6 +569,20 @@ export default {
       // 兜底：把未列入顺序的也补上
       us.forEach((u) => { if (!this.deployOrder.includes(u.cardId)) ordered.push(u); });
       return ordered;
+    },
+    // 布阵两列：奇数位→左列，偶数位→右列（与后端一致）
+    deployCols() {
+      const all = this.deployUnits;
+      const c0 = []; const c1 = [];
+      all.forEach((u, i) => { (i % 2 === 0 ? c0 : c1).push(u); });
+      return [c0, c1];
+    },
+    // 房间制布阵两列
+    roomDeployCols() {
+      const all = this.roomDeployUnits;
+      const c0 = []; const c1 = [];
+      all.forEach((u, i) => { (i % 2 === 0 ? c0 : c1).push(u); });
+      return [c0, c1];
     },
     // 房间制布阵阶段：按本地 roomDeployOrder 渲染（数据源：room.myTroop）
     roomDeployUnits() {
@@ -545,13 +596,17 @@ export default {
     },
     // 战场视图：布阵阶段用 deployOrder 实时反映站位，开战后用服务端队列（我方）
     playerSideView() {
-      if (!this.me) return { queue: [], units: [] };
+      if (!this.me) return { cols: [[], []], queue: [], units: [] };
       if (this.deployed) return this.me;
-      return Object.assign({}, this.me, { queue: this.deployUnits.map((u) => u.cardId) });
+      // 布阵中：本地 deployOrder 按奇偶位分两列
+      const ids = this.deployUnits.map((u) => u.cardId);
+      const c0 = []; const c1 = [];
+      ids.forEach((id, i) => { (i % 2 === 0 ? c0 : c1).push(id); });
+      return Object.assign({}, this.me, { cols: [c0, c1], queue: c0.concat(c1) });
     },
     // 战场视图（敌方，不受布阵影响）
     foeSideView() {
-      if (!this.foe) return { queue: [], units: [] };
+      if (!this.foe) return { cols: [[], []], queue: [], units: [] };
       return this.foe;
     },
     // 当前可点成目标的高亮卡
@@ -572,15 +627,15 @@ export default {
     hint() {
       if (this.acting) return '出招中…';
       if (!this.selected) {
-        if (!this.myActable.length) return '前两行单词本回合都已出招，等待下一回合…';
-        return `点击前两行的单词出招（还可行动 ${this.myActable.length} 个），拼写正确即触发词性技能`;
+        if (!this.myActable.length) return '每列前两个单词本回合都已出招，等待下一回合…';
+        return `点击前排单词出招（还可行动 ${this.myActable.length} 个），拼写正确即触发词性技能`;
       }
       const role = this.selRole();
       if (!this.targetPhase) return this.readyDescribe(role);
       if (role === 'noun') return '选择要保护/叠盾的己方单词（可点自己）';
       if (role === 'adjective') return '点击一个己方名词给它加护盾';
       if (role === 'adverb') return '点击一个己方动词给它加攻击';
-      if (role === 'verb') return '点击敌方前两行目标发起攻击';
+      if (role === 'verb') return '点击敌方每列最前的目标发起攻击';
       return '';
     },
     // 我是否已准备
@@ -1063,7 +1118,7 @@ export default {
         if (this.myTargetable.includes(u.cardId)) return this.toSpellSkill(u.cardId);
         // 否则视为重新选择前排单位
       }
-      if (!this.isFront(u.cardId)) { this.msgToast('该单词不在前两行，等前两行阵亡后会自动前移'); return; }
+      if (!this.isFront(u.cardId)) { this.msgToast('该单词不在本列前排，等同列前排阵亡后会自动前移'); return; }
       if (u.usedSkill) { this.msgToast('该单词本回合已经行动过了，等下一回合'); return; }
       this.selected = u.cardId;
       // 所有词性都先进“选目标”态：名词可点自己、形容词/副词选己方、动词选敌方
@@ -1075,7 +1130,11 @@ export default {
     },
     isFront(cardId) {
       if (!this.me) return false;
-      return this.me.queue.indexOf(cardId) < 4;
+      // 两列模型：在自己所在列的前 2 位即为前排（共 4 个）
+      const cols = this.colsOf(this.me);
+      const ci = cols.findIndex((c) => c.indexOf(cardId) >= 0);
+      if (ci < 0) return false;
+      return cols[ci].indexOf(cardId) < 2;
     },
     // 点敌方单位：仅当我在选动词目标
     onEnemyUnitClick(u) {
@@ -1287,6 +1346,7 @@ export default {
 .room-deploy-tip b { color: #ffd54f; font-size: 32rpx; }
 .room-deploy-sub { display: block; font-size: 21rpx; color: #9fb6d0; line-height: 1.6; margin: 6rpx 0 12rpx; }
 .room-deploy-list { display: flex; flex-direction: column; gap: 8rpx; margin-bottom: 14rpx; }
+.room-deploy-item.empty { opacity: .35; border-style: dashed; justify-content: center; }
 .room-deploy-item { display: flex; align-items: center; gap: 12rpx; padding: 12rpx 14rpx; background: rgba(255,255,255,.06); border: 2rpx solid rgba(255,255,255,.14); border-radius: 14rpx; }
 .room-deploy-item.frontline { background: rgba(255,213,79,.1); border-color: rgba(255,213,79,.45); }
 .room-deploy-item.picked { border-color: #ffd54f; box-shadow: 0 0 0 2rpx rgba(255,213,79,.6); }
@@ -1413,18 +1473,23 @@ export default {
 .battlefield.frozen { opacity: .96; }
 .deploy-bar { padding: 14rpx 18rpx 6rpx; text-align: center; }
 .deploy-tip { display: block; font-size: 22rpx; color: #8aa4c4; line-height: 1.6; margin-bottom: 12rpx; }
+/* 布阵两列：左右各一列，列内纵向，不横移 */
+.deploy-cols { display: flex; flex-direction: row; gap: 16rpx; margin-bottom: 16rpx; align-items: flex-start; }
+.deploy-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
+.deploy-col-title { font-size: 20rpx; color: #90caf9; text-align: center; padding-bottom: 2rpx; }
 .deploy-list { display: flex; flex-direction: column; gap: 8rpx; margin-bottom: 16rpx; }
 .deploy-item {
-  display: flex; align-items: center; gap: 12rpx;
-  background: #11202f; border: 1rpx solid #24374d; border-radius: 12rpx; padding: 10rpx 14rpx;
+  display: flex; align-items: center; gap: 8rpx;
+  background: #11202f; border: 1rpx solid #24374d; border-radius: 12rpx; padding: 10rpx 12rpx;
 }
+.deploy-item.empty { opacity: .35; border-style: dashed; justify-content: center; }
 .deploy-item.frontline { background: rgba(255,213,79,.08); border-color: rgba(255,213,79,.45); }
 .deploy-item.picked { border-color: #ffd54f; box-shadow: 0 0 0 2rpx rgba(255,213,79,.6); }
-.di-idx { width: 34rpx; height: 34rpx; line-height: 34rpx; text-align: center; border-radius: 50%; background: #24374d; color: #cfd8e8; font-size: 20rpx; }
+.di-idx { width: 30rpx; height: 30rpx; line-height: 30rpx; text-align: center; border-radius: 50%; background: #24374d; color: #cfd8e8; font-size: 18rpx; flex: none; }
 .deploy-item.frontline .di-idx { background: #ffd54f; color: #12243c; }
-.di-word { flex: 1; text-align: left; color: #e8f0ff; font-size: 26rpx; font-weight: bold; }
-.di-role { font-size: 20rpx; color: #9fb4d0; }
-.di-pos { font-size: 18rpx; color: #12243c; background: #90caf9; border-radius: 14rpx; padding: 2rpx 10rpx; }
+.di-word { flex: 1; min-width: 0; text-align: left; color: #e8f0ff; font-size: 24rpx; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.di-role { font-size: 18rpx; color: #9fb4d0; flex: none; }
+.di-pos { font-size: 16rpx; color: #12243c; background: #90caf9; border-radius: 14rpx; padding: 2rpx 8rpx; flex: none; }
 .deploy-item.frontline .di-pos { background: #ffd54f; }
 .deploy-btn {
   background: linear-gradient(135deg, #e53935, #b71c1c); color: #fff; font-weight: bold;
