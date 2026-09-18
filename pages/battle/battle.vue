@@ -231,6 +231,7 @@
           {{ !deployed ? '🚩 布阵中' : snap.over ? (iWin ? '🏆 我方胜利' : iLose ? '💀 我方落败' : '平局') : (isMyGo ? '🎯 你的回合' : (isGold ? '⏳ 对手回合' : '🤖 敌方回合')) }}
         </text>
         <text class="turn-num">第 {{ snap.turn }} 回合</text>
+        <text v-if="!snap.over" class="flee-btn" @click="onFlee">🏳️ 逃跑</text>
       </view>
 
       <!-- 倒计时：我方回合=绿/红，敌方回合=橙（思考中） -->
@@ -429,6 +430,7 @@ export default {
       roomDeployOrder: [], // 房间制布阵顺序（cardId 数组）
       _enteredBattleId: null, // 已进入的对局 id（防重复重建战场）
       deploying: false,
+      fleeing: false,    // 逃跑请求中（防重复点）
       msg: '',
       // 我方行动状态
       selected: null,      // 我方被选中要行动的 word cardId
@@ -1358,6 +1360,35 @@ export default {
       const title = (isEnemy && pick.indexOf('🤖') < 0 ? prefix : '') + pick;
       uni.showToast({ title: title.slice(0, 30), icon: badLine ? 'error' : 'none', duration: 2400 });
     },
+    // 逃跑（主动认输）：二次确认后调后端判负；金币场会把底池给对手
+    onFlee() {
+      if (!this.battleId || (this.snap && this.snap.over)) return;
+      const isGold = this.isGold;
+      const tip = isGold
+        ? `逃跑将判负，押注的 ${(this.snap && this.snap.bet) || 0} 金币会归对手，确定吗？`
+        : '逃跑将直接判负，确定吗？';
+      uni.showModal({
+        title: '🏳️ 确认逃跑',
+        content: tip,
+        confirmText: '逃跑',
+        confirmColor: '#e53935',
+        cancelText: '再战',
+        success: async (r) => {
+          if (!r.confirm) return;
+          this.fleeing = true;
+          try {
+            const res = await battleApi.battleForfeit(this.battleId);
+            const snap = res && res.data && res.data.snap;
+            this.stopTicking();
+            if (snap) this.applySnap(snap);
+            this.msgToast('🏳️ 已逃跑，本局判负');
+          } catch (e) {
+            this.msgToast((e && (e.msg || e.message)) || '逃跑失败');
+          }
+          this.fleeing = false;
+        },
+      });
+    },
     // 再来一局：回到大厅
     restart() {
       this.stopTicking();
@@ -1535,6 +1566,7 @@ export default {
 /* 战场 */
 .field { padding: 12rpx 16rpx 30rpx; }
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 8rpx 4rpx 14rpx; }
+.flee-btn { font-size: 24rpx; color: #ffab91; border: 2rpx solid rgba(255,171,145,.55); border-radius: 24rpx; padding: 4rpx 16rpx; margin-left: 12rpx; }
 .turn-badge { background: #31445e; font-size: 26rpx; padding: 8rpx 24rpx; border-radius: 26rpx; }
 .turn-badge.mine { background: #00897b; }
 .turn-num { color: #8aa4c4; font-size: 24rpx; }

@@ -23,6 +23,11 @@ export function battleAct(battleId, payload, silent = true) {
   return request(`/battle/${battleId}/act`, { method: 'POST', data: payload, silent });
 }
 
+/** 逃跑（主动认输）：AI 场直接判负；金币场判负并把底池给对手 */
+export function battleForfeit(battleId) {
+  return request(`/battle/${battleId}/forfeit`, { method: 'POST' });
+}
+
 // ===== 金币场（真人 PvP）=====
 export function goldBets() {
   return request('/battle/gold/bets', { method: 'GET' });

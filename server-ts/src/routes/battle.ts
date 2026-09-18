@@ -189,6 +189,16 @@ router.post('/:battleId/deploy', authMiddleware, async (req: Request, res: Respo
   }
 });
 
+// 逃跑（主动认输）：AI 场判负；金币场判负并把底池给对手。已结束的对局幂等。
+router.post('/:battleId/forfeit', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const snap = await battleSvc.forfeitBattle(Number(req.params.battleId), req.userId!);
+    ok(res, { battleId: Number(req.params.battleId), snap });
+  } catch (err: unknown) {
+    fail(res, err instanceof Error && /不存在|无权/.test(err.message) ? 404 : 400, err instanceof Error ? err.message : '逃跑失败');
+  }
+});
+
 // 玩家行动：body { kind:'skill'|'revive', unit_card_id, target_card_id?, spell_correct }
 router.post('/:battleId/act', authMiddleware, async (req: Request, res: Response) => {
   const battleId = Number(req.params.battleId);

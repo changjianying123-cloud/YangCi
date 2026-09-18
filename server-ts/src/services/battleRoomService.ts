@@ -107,6 +107,11 @@ export async function roomView(room: BattleRoomRow, viewerId: number): Promise<R
   return view;
 }
 
+/** 读取房间原始行（供其它 service 使用，例如 battleService.forfeitBattle） */
+export function loadRoomPublic(roomId: number): Promise<BattleRoomRow | null> {
+  return loadRoom(roomId);
+}
+
 /** 房间详情（指定视角） */
 export async function roomViewById(roomId: number, viewerId: number): Promise<RoomView | null> {
   const room = await loadRoom(roomId);

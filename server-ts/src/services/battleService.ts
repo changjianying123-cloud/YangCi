@@ -421,6 +421,45 @@ export async function playerAct(
   return snap;
 }
 
+/**
+ * 逃跑（主动认输）：AI 场直接判负；金币场判负并把底池给对手。已结束的对局幂等返回。
+ */
+export async function forfeitBattle(battleId: number, playerUserId: number): Promise<BattleSnapshot> {
+  const snap = await loadBattle(battleId);
+  if (!snap) throw new Error('对战不存在');
+  const side = sideIdx(snap, playerUserId);
+  if (side == null) throw new Error('无权操作该对战');
+  if (snap.over) return snap; // 幂等
+
+  const foeSide = side === 0 ? 1 : 0;
+  const myName = (side === 0 ? snap.player : snap.enemy).nickname;
+  snap.over = true;
+  snap.winner = foeSide;
+  snap.reason = `${myName} 逃跑，对局结束`;
+  snap.log.push(`🏃 ${myName} 逃跑，判负`);
+
+  if (!isPvp(snap)) {
+    // AI 场：无押注，直接落盘
+    await saveBattle(battleId, snap);
+    return snap;
+  }
+
+  // 金币场：先落盘，再结算底池
+  await saveBattle(battleId, snap);
+  const rid = (snap as any).roomId as number | undefined;
+  if (rid) {
+    // 房间制：把底池判给对手（battleRoomService.forfeitRoom 内部会幂等处理）
+    const roomSvc = await import('./battleRoomService');
+    const room = await roomSvc.loadRoomPublic(rid);
+    if (room && room.status !== 'finished' && room.status !== 'cancelled') {
+      await roomSvc.forfeitRoom(room, playerUserId, '逃跑');
+    }
+  } else {
+    await settlePvpReward(snap);
+  }
+  return snap;
+}
+
 /** 真人 PvP：结束当前回合并切换行动方（轮到的玩家带倒计时）。 */
 async function advancePvpTurn(battleId: number, snap: BattleSnapshot) {
   snap.turn += 1;
