@@ -448,9 +448,9 @@ export default {
     isZhSpell() {
       return !!(this.snap && this.snap.spellMode === 'zh-spell');
     },
-    // 弹窗顶部展示的卡牌：拼中文→显英文单词；拼英文→显中文释义
+    // 弹窗顶部展示的卡牌：拼中文→显英文单词（拼中文意思）；拼英文→显中文释义（拼英文单词）
     spellShowWord() {
-      return !this.isZhSpell;
+      return this.isZhSpell;
     },
     isMyGo() {
       return this.deployed && !!this.snap && !this.snap.over && this.snap.currentSide === this.mySideIdx;
