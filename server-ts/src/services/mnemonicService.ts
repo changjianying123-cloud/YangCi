@@ -15,7 +15,6 @@ import { toMillis } from '../utils/time';
 export interface MnemonicDTO {
   id: number;
   wordId: number;
-  title: string | null;
   imageUrl: string | null;
   content: string | null;
   sort: number;
@@ -51,7 +50,6 @@ function mapRow(r: Row, viewerId: number): MnemonicDTO {
   return {
     id: r.id,
     wordId: r.word_id,
-    title: r.title,
     imageUrl: r.image_url,
     content: r.content,
     sort: Number(r.sort) || 0,
@@ -95,7 +93,7 @@ export async function countMnemonics(wordId: number): Promise<number> {
 export async function createUserMnemonic(
   userId: number,
   wordId: number,
-  data: { title?: string | null; imageUrl?: string | null; content?: string | null }
+  data: { imageUrl?: string | null; content?: string | null }
 ): Promise<MnemonicDTO> {
   if (!wordId) throw new Error('缺少单词 ID');
   const content = (data.content || '').trim();
@@ -116,8 +114,8 @@ export async function createUserMnemonic(
   }
 
   const [result] = await pool.execute<ResultSetHeader>(
-    'INSERT INTO word_mnemonics (word_id, user_id, title, image_url, content, sort) VALUES (?, ?, ?, ?, ?, 0)',
-    [wordId, userId, data.title || null, imageUrl || null, content || null]
+    'INSERT INTO word_mnemonics (word_id, user_id, image_url, content, sort) VALUES (?, ?, ?, ?, 0)',
+    [wordId, userId, imageUrl || null, content || null]
   );
 
   const list = await listMnemonics(userId, wordId);
@@ -130,7 +128,7 @@ export async function createUserMnemonic(
 export async function updateUserMnemonic(
   userId: number,
   mnemonicId: number,
-  data: { title?: string | null; imageUrl?: string | null; content?: string | null }
+  data: { imageUrl?: string | null; content?: string | null }
 ): Promise<MnemonicDTO> {
   const [rows] = await pool.execute<Row[]>(
     'SELECT * FROM word_mnemonics WHERE id = ?',
@@ -147,7 +145,6 @@ export async function updateUserMnemonic(
 
   const sets: string[] = [];
   const params: any[] = [];
-  if (data.title !== undefined) { sets.push('`title` = ?'); params.push(data.title || null); }
   if (data.imageUrl !== undefined) { sets.push('`image_url` = ?'); params.push(nextImage || null); }
   if (data.content !== undefined) { sets.push('`content` = ?'); params.push(nextContent || null); }
   if (!sets.length) throw new Error('没有要更新的内容');

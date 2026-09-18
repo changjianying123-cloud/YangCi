@@ -554,7 +554,7 @@ function mapMnemonic(r: any) {
   return {
     id: r.id,
     wordId: r.word_id,
-    title: r.title,
+    title: null,
     imageUrl: r.image_url,
     content: r.content,
     sort: Number(r.sort) || 0,
@@ -584,7 +584,6 @@ export async function adminListMnemonics(wordId: number) {
 
 export async function adminCreateMnemonic(data: {
   wordId: number;
-  title?: string | null;
   imageUrl?: string | null;
   content?: string | null;
   sort?: number;
@@ -599,8 +598,8 @@ export async function adminCreateMnemonic(data: {
 
   const [result] = await pool.execute<ResultSetHeader>(
     // user_id 不传 → 保持 NULL，即「官方助记」
-    'INSERT INTO word_mnemonics (word_id, title, image_url, content, sort) VALUES (?, ?, ?, ?, ?)',
-    [data.wordId, data.title || null, imageUrl || null, content || null, data.sort ?? 0]
+    'INSERT INTO word_mnemonics (word_id, image_url, content, sort) VALUES (?, ?, ?, ?)',
+    [data.wordId, imageUrl || null, content || null, data.sort ?? 0]
   );
   const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM word_mnemonics WHERE id = ?', [result.insertId]);
   return mapMnemonic(rows[0]);
@@ -613,7 +612,7 @@ export async function adminCreateMnemonic(data: {
  */
 export async function adminUpdateMnemonic(
   id: number,
-  data: { title?: string | null; imageUrl?: string | null; content?: string | null; sort?: number }
+  data: { imageUrl?: string | null; content?: string | null; sort?: number }
 ) {
   const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM word_mnemonics WHERE id = ?', [id]);
   if (!rows[0]) throw new Error('助记不存在');
@@ -627,7 +626,6 @@ export async function adminUpdateMnemonic(
     sets.push(`\`${col}\` = ?`);
     params.push(val);
   };
-  if (data.title !== undefined) put('title', data.title);
   if (data.imageUrl !== undefined) put('image_url', data.imageUrl || null);
   if (data.content !== undefined) put('content', data.content);
   if (data.sort !== undefined) put('sort', data.sort);

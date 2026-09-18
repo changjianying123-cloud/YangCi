@@ -206,7 +206,6 @@ router.post('/words/:id/mnemonics', async (req: Request, res: Response) => {
   try {
     const item = await svc.adminCreateMnemonic({
       wordId,
-      title: req.body.title,
       imageUrl: req.body.imageUrl,
       content: req.body.content,
       sort: req.body.sort !== undefined ? Number(req.body.sort) : undefined,
@@ -222,7 +221,6 @@ router.put('/mnemonics/:id', async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   try {
     const r = await svc.adminUpdateMnemonic(id, {
-      title: req.body.title,
       imageUrl: req.body.imageUrl,
       content: req.body.content,
       sort: req.body.sort !== undefined ? Number(req.body.sort) : undefined,

@@ -1,0 +1,7 @@
+﻿refactor(mnemonic): 去掉助记「标题」字段（前台 + 后台）
+
+- 前台 MnemonicPanel：删除标题输入框与列表标题展示；发布/编辑只提交 content + imageUrl
+- 后台 Words.vue：删除标题表单项，列表改为显示「官方助记 / 用户助记」标签
+- 后端：create/update 不再接收 title，DTO 固定返回 title=null（DB 列保留，不动历史数据）
+
+回归：助记流 49/49、上传 19/19、导入 32/32、admin e2e 33/33 全绿

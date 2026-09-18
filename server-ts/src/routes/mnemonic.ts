@@ -43,7 +43,6 @@ router.get('/word/:wordId', async (req: Request, res: Response) => {
 router.post('/word/:wordId', async (req: Request, res: Response) => {
   try {
     const item = await createUserMnemonic(req.userId!, Number(req.params.wordId), {
-      title: req.body.title,
       imageUrl: req.body.imageUrl,
       content: req.body.content,
     });
@@ -57,7 +56,6 @@ router.post('/word/:wordId', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const item = await updateUserMnemonic(req.userId!, Number(req.params.id), {
-      title: req.body.title,
       imageUrl: req.body.imageUrl,
       content: req.body.content,
     });

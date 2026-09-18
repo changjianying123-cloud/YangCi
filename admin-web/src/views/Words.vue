@@ -118,7 +118,7 @@
           <div class="mn-head">
             <el-tag v-if="m.isOfficial" size="small" type="primary">官方</el-tag>
             <el-tag v-else size="small" type="success">{{ m.authorName || '用户' }}</el-tag>
-            <span class="mn-title">{{ m.title || '（无标题）' }}</span>
+            <span class="mn-title">{{ m.isOfficial ? '官方助记' : '用户助记' }}</span>
             <el-tag v-if="m.status === 0" size="small" type="danger">已隐藏</el-tag>
             <span v-if="m.likeCount" class="mn-sort">❤️ {{ m.likeCount }}</span>
             <span class="mn-sort">排序 {{ m.sort }}</span>
@@ -144,9 +144,6 @@
     <!-- 助记 新增/编辑（仅官方） -->
     <el-dialog v-model="mnForm.visible" :title="mnForm.editing ? '编辑官方助记' : '新增官方助记'" width="480px" append-to-body>
       <el-form :model="mnForm" label-width="80px">
-        <el-form-item label="标题">
-          <el-input v-model="mnForm.title" placeholder="如 谐音法 / 图像联想（可留空）" />
-        </el-form-item>
         <el-form-item label="图片">
           <el-input v-model="mnForm.imageUrl" placeholder="图片地址 URL（可留空）" />
           <el-image
@@ -251,7 +248,7 @@ const dialog = reactive({ visible: false, editing: false, id: null });
 const form = reactive({ bookId: null, word: '', phonetic: '', meaning: '', pos: '', exampleSentence: '' });
 
 const mn = reactive({ visible: false, loading: false, wordId: null, word: '', list: [] });
-const mnForm = reactive({ visible: false, editing: false, id: null, title: '', imageUrl: '', content: '', sort: 0, saving: false });
+const mnForm = reactive({ visible: false, editing: false, id: null, imageUrl: '', content: '', sort: 0, saving: false });
 
 const imp = reactive({ visible: false, mode: 'append', csv: '', filename: '', loading: false });
 const exp = reactive({ visible: false, scope: 'all', bookCode: '', loading: false });
@@ -359,11 +356,11 @@ function openMnemonicForm(m) {
   if (m) {
     mnForm.editing = true;
     mnForm.id = m.id;
-    Object.assign(mnForm, { title: m.title || '', imageUrl: m.imageUrl || '', content: m.content || '', sort: m.sort ?? 0 });
+    Object.assign(mnForm, { imageUrl: m.imageUrl || '', content: m.content || '', sort: m.sort ?? 0 });
   } else {
     mnForm.editing = false;
     mnForm.id = null;
-    Object.assign(mnForm, { title: '', imageUrl: '', content: '', sort: mn.list.length });
+    Object.assign(mnForm, { imageUrl: '', content: '', sort: mn.list.length });
   }
   mnForm.visible = true;
 }
@@ -375,7 +372,7 @@ async function saveMnemonic() {
   mnForm.saving = true;
   try {
     const payload = {
-      title: mnForm.title || null,
+      title: null,
       imageUrl: mnForm.imageUrl || null,
       content: mnForm.content || null,
       sort: mnForm.sort,

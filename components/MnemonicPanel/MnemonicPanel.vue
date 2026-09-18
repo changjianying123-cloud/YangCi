@@ -28,7 +28,6 @@
                 <text v-if="m.isOfficial" class="mn-badge official-badge">官方</text>
                 <text v-else class="mn-badge user-badge">{{ m.authorName || '同学' }}</text>
               </view>
-              <text v-if="m.title" class="mn-item-title">{{ m.title }}</text>
             </view>
 
             <image
@@ -64,11 +63,6 @@
     <view class="mn-form-mask" v-if="formVisible" @click="closeForm">
       <view class="mn-form" @click.stop>
         <text class="mn-form-title">{{ form.id ? '编辑助记' : '发布助记' }}</text>
-
-        <view class="mn-field">
-          <text class="mn-label">标题（可选）</text>
-          <input class="mn-input" v-model="form.title" placeholder="比如：谐音法 / 图像联想" maxlength="50" />
-        </view>
 
         <view class="mn-field">
           <text class="mn-label">助记内容</text>
@@ -133,7 +127,7 @@ export default {
       loading: false,
       submitting: false,
       formVisible: false,
-      form: { id: null, title: '', content: '', imageUrl: '' },
+      form: { id: null, content: '', imageUrl: '' },
     };
   },
   watch: {
@@ -179,13 +173,12 @@ export default {
       }
     },
     openCreate() {
-      this.form = { id: null, title: '', content: '', imageUrl: '' };
+      this.form = { id: null, content: '', imageUrl: '' };
       this.formVisible = true;
     },
     openEdit(m) {
       this.form = {
         id: m.id,
-        title: m.title || '',
         content: m.content || '',
         imageUrl: m.imageUrl || '',
       };
@@ -225,14 +218,12 @@ export default {
       try {
         if (this.form.id) {
           await updateMnemonic(this.form.id, {
-            title: this.form.title || null,
             content: content || null,
             imageUrl: imageUrl || null,
           });
           uni.showToast({ title: '已保存', icon: 'success' });
         } else {
           await createMnemonic(this.wordId, {
-            title: this.form.title || null,
             content: content || null,
             imageUrl: imageUrl || null,
           });
@@ -393,12 +384,6 @@ export default {
 .user-badge {
   background: #e8f5e9;
   color: #43a047;
-}
-
-.mn-item-title {
-  font-size: 26rpx;
-  color: #333;
-  font-weight: bold;
 }
 
 .mn-image {
