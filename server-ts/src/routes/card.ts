@@ -11,6 +11,7 @@ import {
   getPlayQuestion,
   playCard,
   pickRandomPlayableCard,
+  pickRandomFeedableCard,
 } from '../services/cardService';
 import { authMiddleware } from '../middleware/auth';
 import { ok, fail } from '../utils/response';
@@ -42,6 +43,20 @@ router.get('/play/random', authMiddleware, async (req: Request, res: Response) =
   try {
     const data = await pickRandomPlayableCard(req.userId!, exclude, mood);
     if (!data) return fail(res, 404, '没有其它可玩耍的单词了');
+    ok(res, data);
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '获取失败');
+  }
+});
+
+// 找下一个「可喂养」的卡（喂养完成后不用退回列表，直接接着喂）
+// hungry=1 时只找饥饿中的卡
+// ⚠️ 必须在 /:cardId 之前注册，否则会被当成 cardId
+router.get('/feed/next', authMiddleware, async (req: Request, res: Response) => {
+  const exclude = req.query.exclude ? Number(req.query.exclude) : undefined;
+  const onlyHungry = req.query.hungry === '1' || req.query.hungry === 'true';
+  try {
+    const data = await pickRandomFeedableCard(req.userId!, exclude, onlyHungry);
     ok(res, data);
   } catch (err: unknown) {
     fail(res, 400, err instanceof Error ? err.message : '获取失败');

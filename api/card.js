@@ -58,6 +58,16 @@ export function getRandomPlayCard(excludeCardId, mood) {
   return request(`/card/play/random${q}`);
 }
 
+/** 喂养：找下一张可喂养的卡（用完不用退回列表，直接接着喂）
+ *  hungryOnly=true 时只找饥饿中的卡 */
+export function getNextFeedCard(excludeCardId, hungryOnly) {
+  const parts = [];
+  if (excludeCardId) parts.push(`exclude=${excludeCardId}`);
+  if (hungryOnly) parts.push('hungry=1');
+  const q = parts.length ? `?${parts.join('&')}` : '';
+  return request(`/card/feed/next${q}`);
+}
+
 /** 玩耍：交答案。mode='translate' 时走容错判分 */
 export function submitPlayAnswer(cardId, answer, mode = 'pick') {
   return request(`/card/${cardId}/play`, {

@@ -709,6 +709,90 @@ export async function pickRandomPlayableCard(userId: number, excludeCardId?: num
 }
 
 /**
+ * 找下一个「可以喂养」的卡片
+ *
+ * 喂养完成后用户不想退回列表再点进来，想直接接着喂下一个。
+ * 优先级：
+ *   1. 饥饿中的卡（最想被救，用户最需要处理）
+ *   2. 处于正常喂养窗口内的卡
+ * 都找不到再回退到任一「未到时间但还存在」的卡，方便做「下一个」入口提示。
+ *
+ * @param excludeCardId 排除当前这张（默认从下张继续）
+ * @param onlyHungry    true = 只找饥饿的卡
+ */
+export async function pickRandomFeedableCard(
+  userId: number,
+  excludeCardId?: number,
+  onlyHungry = false
+) {
+  const now = Date.now();
+
+  // ── 1. 饥饿中的卡（最优先）──
+  const [hungryRows] = await pool.query<UserCardRow[]>(
+    `SELECT uc.id, w.word, w.meaning
+     FROM user_cards uc
+     JOIN words w ON w.id = uc.word_id
+     WHERE uc.user_id = ?
+       AND (uc.abandoned IS NULL OR uc.abandoned = 0)
+       AND uc.is_egg = 0
+       AND uc.level > 0
+       AND uc.hunger_start_at IS NOT NULL
+       AND (? IS NULL OR uc.id <> ?)
+     ORDER BY uc.hunger_start_at ASC
+     LIMIT 1`,
+    [userId, excludeCardId ?? null, excludeCardId ?? null]
+  );
+  if (hungryRows[0]) {
+    return { cardId: hungryRows[0].id, word: hungryRows[0].word || '', reason: 'hungry' as const };
+  }
+  if (onlyHungry) return null;
+
+  // ── 2. 正在喂养窗口内的卡 ──
+  const [windowRows] = await pool.query<UserCardRow[]>(
+    `SELECT uc.id, w.word, w.meaning
+     FROM user_cards uc
+     JOIN words w ON w.id = uc.word_id
+     WHERE uc.user_id = ?
+       AND (uc.abandoned IS NULL OR uc.abandoned = 0)
+       AND uc.is_egg = 0
+       AND uc.level > 0
+       AND uc.hunger_start_at IS NULL
+       AND uc.feed_deadline <= ?
+       AND ? < uc.feed_window_end
+       AND (? IS NULL OR uc.id <> ?)
+     ORDER BY uc.feed_deadline ASC
+     LIMIT 1`,
+    [userId, now, now, excludeCardId ?? null, excludeCardId ?? null]
+  );
+  if (windowRows[0]) {
+    return { cardId: windowRows[0].id, word: windowRows[0].word || '', reason: 'window' as const };
+  }
+
+  // ── 3. 有未完成补救喂养的卡 ──
+  const [remedialRows] = await pool.query<UserCardRow[]>(
+    `SELECT uc.id, w.word, w.meaning
+     FROM user_cards uc
+     JOIN words w ON w.id = uc.word_id
+     WHERE uc.user_id = ?
+       AND (uc.abandoned IS NULL OR uc.abandoned = 0)
+       AND uc.is_egg = 0
+       AND uc.level > 0
+       AND uc.hunger_start_at IS NULL
+       AND uc.remedial_feed_at IS NOT NULL
+       AND uc.had_wrong_attempt = 1
+       AND (? IS NULL OR uc.id <> ?)
+     ORDER BY uc.remedial_feed_at ASC
+     LIMIT 1`,
+    [userId, excludeCardId ?? null, excludeCardId ?? null]
+  );
+  if (remedialRows[0]) {
+    return { cardId: remedialRows[0].id, word: remedialRows[0].word || '', reason: 'remedial' as const };
+  }
+
+  return null;
+}
+
+/**
  * 出题：
  *  - mode='pick'      → 返回 4 个中文选项（1 正确 + 3 干扰，同书优先）
  *  - mode='translate' → 只需英文单词，用户手打中文

@@ -101,6 +101,18 @@
           <text v-if="(card.coins || 0) < 10" class="coin-insufficient">💰 金币不足，去收服新单词获取金币吧</text>
         </view>
 
+          <!-- 本轮已拼满：用一个隐形输入框捕捉回车，回车 = 喂下一个 -->
+          <view v-if="roundDone && nextAvailable" class="enter-catcher">
+            <input
+              class="ghost-input"
+              :focus="enterFocus"
+              confirm-type="done"
+              value=""
+              @confirm="onEnterNext"
+            />
+            <text class="enter-hint">↵ 直接回车也能继续下一个</text>
+          </view>
+
         <!-- 不可喂养时显示提示 -->
         <view v-if="!card.canFeed && !card.isHungry" class="no-feed-tip">
           <text class="tip-icon">⏰</text>
@@ -117,6 +129,14 @@
         <!-- 遗弃按钮 -->
         <view class="abandon-section" v-if="!card.isEgg">
           <button class="abandon-btn" @click="confirmAbandon">🗑️ 遗弃此单词</button>
+        </view>
+
+        <!-- 下一个可喂养的单词：不用退回列表再点进来 -->
+        <view class="next-section">
+          <button class="next-btn" :disabled="switchingNext" @click="goNextCard()">
+            {{ switchingNext ? '正在找下一个...' : '➡️ 喂下一个单词' }}
+          </button>
+          <text class="next-hint" v-if="nextHint">{{ nextHint }}</text>
         </view>
       </view>
     </view>
@@ -135,7 +155,7 @@
 </template>
 
 <script>
-import { getCardDetail, feedCard, hatchEgg, abandonCard, recoverHunger } from '@/api/card.js';
+import { getCardDetail, feedCard, hatchEgg, abandonCard, recoverHunger, getNextFeedCard } from '@/api/card.js';
 import SpellInput from '@/components/SpellInput/SpellInput.vue';
 import AudioPlayer from '@/components/AudioPlayer/AudioPlayer.vue';
 import MnemonicPanel from '@/components/MnemonicPanel/MnemonicPanel.vue';
@@ -161,6 +181,15 @@ export default {
       roundDone: false,
       // 助记面板
       mnVisible: false,
+      // 下一个可喂养单词
+      switchingNext: false,
+      nextHint: '',
+      // 回车继续：隐形输入框聚焦 + 是否还有下一个
+      enterFocus: false,
+      nextAvailable: false,
+      // 剩下的数量提示（饥饿 / 可喂）
+      hungryLeft: 0,
+      feedableLeft: 0,
     };
   },
   computed: {
@@ -203,6 +232,73 @@ export default {
         // 判断是否之前拼写过（hadWrongAfterReset 等信息）
         // 直接从后端的 had_wrong_attempt 判断
         this.card.challengeHadWrong = res.data.mood === 'sad';
+
+        // 拉一下还剩几个可喂养 / 饥饿的（给「下一个」按钮做提示）
+        this.refreshNextHint();
+      }
+    },
+    // 查下一个可喂养的卡；顺便更新提示文案
+    async refreshNextHint() {
+      try {
+        const res = await getNextFeedCard(this.cardId);
+        if (res.data && res.data.cardId) {
+          this.nextAvailable = true;
+          this.nextHint =
+            res.data.reason === 'hungry'
+              ? `还有单词在饥饿中，快去救它（${res.data.word}）`
+              : `下一个：${res.data.word}`;
+        } else {
+          this.nextAvailable = false;
+          this.nextHint = '暂时没有其它可喂养的单词了';
+        }
+      } catch (_) {
+        this.nextAvailable = false;
+        this.nextHint = '';
+      }
+    },
+    // 回车 = 喂下一个（本轮拼满后才会挂上隐形输入框）
+    onEnterNext() {
+      this.enterFocus = false;
+      this.goNextCard();
+    },
+    // 本轮结束后让隐形输入框接管焦点，等用户回车
+    focusEnterCatcher() {
+      this.$nextTick(() => {
+        setTimeout(() => {
+          this.enterFocus = true;
+        }, 120);
+      });
+    },
+    // 喂下一个单词：同一页面直接换卡，不用退回列表
+    async goNextCard(onlyHungry) {
+      if (this.switchingNext) return;
+      this.switchingNext = true;
+      try {
+        const res = await getNextFeedCard(this.cardId, onlyHungry);
+        if (res.data && res.data.cardId) {
+          this.cardId = res.data.cardId;
+          uni.setNavigationBarTitle({ title: `喂养：${res.data.word}` });
+          if (res.data.reason === 'hungry') {
+            uni.showToast({ title: `⚡ 发现饥饿单词「${res.data.word}」`, icon: 'none' });
+          }
+          await this.loadCard();
+          // 换卡后重置输入状态
+          this.spellValue = '';
+          this.roundDone = false;
+          this.enterFocus = false;
+          this.$nextTick(() => this.refocusInput());
+        } else {
+          uni.showToast({
+            title: onlyHungry ? '没有饥饿中的单词了' : '没有其它可喂养的单词了',
+            icon: 'none',
+            duration: 1800,
+          });
+          this.nextHint = '暂时没有其它可喂养的单词了';
+        }
+      } catch (e) {
+        uni.showToast({ title: e.errMsg || '找不到下一个单词', icon: 'none' });
+      } finally {
+        this.switchingNext = false;
       }
     },
     // 消耗金币恢复饥饿
@@ -274,12 +370,21 @@ export default {
           this.spellRequired = res.data.required || 3;
 
           if (res.data.done) {
-            this.roundDone = true; // 已拼满，即将返回，不再重新聚焦
+            this.roundDone = true; // 已拼满，本轮结束
             const coinMsg = res.data.coinReward > 0 ? ` +${res.data.coinReward}💰` : '';
             const hasRemedial = res.data.hasRemedial ? ' 需2小时后补救' : '';
             uni.showToast({ title: `喂养成功！${coinMsg}${hasRemedial}`, icon: 'success' });
             await store.fetchCards(true);
-            setTimeout(() => uni.navigateBack(), 1200);
+            // 喂养完成 → 刷新「下一个」提示；有下一个就停在本页等用户决定，
+            // 没下一个才自动退回（避免用户面对一个死按钮）
+            await this.refreshNextHint();
+            const next = await getNextFeedCard(this.cardId).catch(() => null);
+            if (!next || !next.data || !next.data.cardId) {
+              setTimeout(() => uni.navigateBack(), 1200);
+            } else {
+              // 还有下一个 → 让隐形输入框接管焦点，用户回车即可继续
+              this.focusEnterCatcher();
+            }
           } else {
             const coinMsg = res.data.coinReward > 0 ? ` +${res.data.coinReward}💰` : '';
             const left = res.data.remaining != null ? res.data.remaining : (res.data.required - res.data.count);
@@ -295,6 +400,7 @@ export default {
         // 禁用状态下无法获得焦点，提前调用会被默默丢掉。
         // 本轮已拼满（roundDone）时即将返回，不再聚焦以免键盘闪烁。
         if (!this.roundDone) this.refocusInput();
+        else if (this.nextAvailable) this.focusEnterCatcher();
       }
     },
     async doHatch() {
@@ -643,5 +749,58 @@ export default {
   border-radius: 48rpx;
   width: 300rpx;
   font-size: 26rpx;
+}
+
+/* 下一个可喂养的单词 */
+.next-section {
+  text-align: center;
+  margin-top: 24rpx;
+}
+
+.next-btn {
+  background: linear-gradient(135deg, #4a90e2, #67b8ff);
+  color: #fff;
+  border: none;
+  border-radius: 48rpx;
+  width: 400rpx;
+  font-size: 28rpx;
+  box-shadow: 0 6rpx 20rpx rgba(74, 144, 226, 0.3);
+}
+
+.next-btn::after {
+  border: none;
+}
+
+.next-btn[disabled] {
+  background: #c5d8ee;
+  color: #fff;
+  box-shadow: none;
+}
+
+.next-hint {
+  display: block;
+  font-size: 22rpx;
+  color: #999;
+  margin-top: 12rpx;
+}
+
+/* 回车继续：隐形输入框（占位但不可见） */
+.enter-catcher {
+  text-align: center;
+  margin-top: 16rpx;
+}
+
+.ghost-input {
+  position: absolute;
+  left: -9999rpx;
+  width: 10rpx;
+  height: 10rpx;
+  opacity: 0;
+}
+
+.enter-hint {
+  display: block;
+  font-size: 22rpx;
+  color: #4a90e2;
 }
 </style>
