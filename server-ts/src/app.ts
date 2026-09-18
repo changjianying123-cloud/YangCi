@@ -9,6 +9,7 @@ import wordRoutes from './routes/word';
 import cardRoutes from './routes/card';
 import statRoutes from './routes/stat';
 import battleRoutes from './routes/battle';
+import adminRoutes from './routes/admin';
 import { initWs, setDisconnectHandler, setConnectHandler } from './ws/hub';
 import { handleDisconnect, handleReconnect, startRoomScanner } from './services/battleRoomService';
 
@@ -27,6 +28,7 @@ app.use('/api/word', wordRoutes);
 app.use('/api/card', cardRoutes);
 app.use('/api/stat', statRoutes);
 app.use('/api/battle', battleRoutes);
+app.use('/api/admin', adminRoutes);
 
 const server = http.createServer(app);
 initWs(server);

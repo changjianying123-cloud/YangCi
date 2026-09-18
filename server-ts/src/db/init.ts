@@ -242,6 +242,11 @@ export async function initDatabase() {
     `ALTER TABLE user_cards ADD COLUMN mood_score INT DEFAULT 0 AFTER downgrade_count`,
     `ALTER TABLE user_cards ADD COLUMN play_count INT DEFAULT 0 AFTER mood_score`,
     `ALTER TABLE user_cards ADD COLUMN play_correct_count INT DEFAULT 0 AFTER play_count`,
+    // 后台管理：管理员标记 + 封禁 + 最后活跃时间（用于 DAU / 在线统计）
+    `ALTER TABLE users ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN is_banned TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN last_active_at BIGINT DEFAULT NULL`,
+    `ALTER TABLE users ADD INDEX idx_last_active (last_active_at)`,
   ];
   // users 迁移执行完后，顺带补一次唯一索引（老表可能已有重复 null，需容错）
   try {
@@ -250,6 +255,23 @@ export async function initDatabase() {
   for (const sql of migrations) {
     try { await pool.execute(sql); } catch (_) { /* 列已存在则忽略 */ }
   }
+
+  // 管理员操作日志（高危写操作追溯）
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS admin_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      admin_id INT NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      target_type VARCHAR(32) DEFAULT NULL,
+      target_id INT DEFAULT NULL,
+      detail TEXT DEFAULT NULL,
+      ip VARCHAR(64) DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_admin (admin_id),
+      INDEX idx_action (action),
+      INDEX idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   console.log('MySQL 数据库表初始化完成');
 }

@@ -256,6 +256,8 @@ declare global {
   namespace Express {
     interface Request {
       userId?: number;
+      /** 管理员 id（adminMiddleware 注入） */
+      adminId?: number;
     }
   }
 }

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { verifyToken } from '../utils/jwt';
 import { fail } from '../utils/response';
+import { touchLastActive } from '../utils/activity';
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const auth = req.headers.authorization || '';
@@ -13,5 +14,6 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return fail(res, 401, '登录已过期，请重新登录');
   }
   req.userId = payload.userId;
+  touchLastActive(payload.userId);
   next();
 }

@@ -1,0 +1,78 @@
+import axios from 'axios';
+import { ElMessage } from 'element-plus';
+
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 20000,
+});
+
+export const TOKEN_KEY = 'yangci_admin_token';
+
+api.interceptors.request.use((cfg) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) cfg.headers.Authorization = `Bearer ${token}`;
+  return cfg;
+});
+
+api.interceptors.response.use(
+  (res) => {
+    const body = res.data || {};
+    if (body.code && body.code !== 200) {
+      ElMessage.error(body.msg || '请求失败');
+      return Promise.reject(body);
+    }
+    return body;
+  },
+  (err) => {
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    if (status === 401) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem('yangci_admin_user');
+      if (!location.hash.includes('/login')) {
+        location.hash = '#/login';
+      }
+    }
+    ElMessage.error(body?.msg || (status === 403 ? '无权限' : '网络异常'));
+    return Promise.reject(err);
+  }
+);
+
+// ===== 登录 =====
+export const authApi = {
+  login: (username, password) => api.post('/auth/login', { username, password }),
+  profile: () => api.get('/auth/profile'),
+  // 首个管理员初始化（库里没有管理员时，把自己提权）
+  bootstrap: () => api.post('/admin/bootstrap'),
+};
+
+// ===== 概览 / 统计 =====
+export const dashApi = {
+  dashboard: () => api.get('/admin/dashboard'),
+  trend: (days = 14) => api.get('/admin/stats/trend', { params: { days } }),
+  online: () => api.get('/admin/online'),
+};
+
+// ===== 单词 =====
+export const wordApi = {
+  list: (params) => api.get('/admin/words', { params }),
+  create: (data) => api.post('/admin/words', data),
+  update: (id, data) => api.put(`/admin/words/${id}`, data),
+  remove: (id) => api.delete(`/admin/words/${id}`),
+  books: () => api.get('/admin/books'),
+};
+
+// ===== 用户 =====
+export const userApi = {
+  list: (params) => api.get('/admin/users', { params }),
+  detail: (id) => api.get(`/admin/users/${id}`),
+  update: (id, data) => api.put(`/admin/users/${id}`, data),
+  resetPassword: (id, password) => api.post(`/admin/users/${id}/reset-password`, { password }),
+};
+
+// ===== 日志 =====
+export const logApi = {
+  list: (params) => api.get('/admin/logs', { params }),
+};
+
+export default api;
