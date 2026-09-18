@@ -316,9 +316,15 @@ export function resetTurnFlags(side: { queue: number[]; units: BattleUnit[] }) {
 export function cleanupQueue(side: SideLike) {
   const cols = getCols(side);
   for (let ci = 0; ci < COL_COUNT; ci++) {
-    cols[ci] = cols[ci].filter((id, _i, _a) => {
+    cols[ci] = cols[ci].filter((id) => {
       const u = side.units.find((x) => x.cardId === id);
-      return u && !u.dead;
+      if (!u) return false;
+      if (u.dead) {
+        // 记住阵亡前所在列，供 tryRevive 复活时回到原列
+        (u as any).origCol = ci;
+        return false;
+      }
+      return true;
     });
   }
   syncQueue(side);
@@ -348,9 +354,14 @@ export function tryRevive(
   u.usedSkill = true; // 以后就算再阵亡也不可复活(已经用过一次复活机会)
   u.hp = u.maxHp || 1;
   const cols = getCols(me);
+  // ⚠️ 阵亡时 cleanupQueue 已把该单位从 cols 中移除，所以这里不能靠 indexOf 找原列
+  //（那会导致阵亡单位"复活到人少的列"，而不是它原本所属的列）。
+  // 优先用阵亡时记录的 origCol；旧存档没有就退回 indexOf / 人少列。
   const back = cols.findIndex((c) => c.indexOf(u.cardId) >= 0);
-  const ci = back >= 0 ? back : (standingCol(me, 0).length <= standingCol(me, 1).length ? 0 : 1);
+  const remembered = typeof (u as any).origCol === 'number' ? (u as any).origCol : -1;
+  const ci = remembered >= 0 ? remembered : (back >= 0 ? back : (standingCol(me, 0).length <= standingCol(me, 1).length ? 0 : 1));
   cols[ci].push(u.cardId);
+  (u as any).origCol = undefined;
   syncQueue(me);
   return { log: `${u.word} 拼写正确，成功复活！(无屏障，回到第${ci === 0 ? '左' : '右'}列末尾)` };
 }

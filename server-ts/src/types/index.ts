@@ -138,6 +138,7 @@ export interface BattleUnit {
   revived: boolean;    // 本局是否已复活过一次
   spelledOnce?: boolean; // 本局是否出手拼写过(拼对拼错都算) → 拼写过就不能复活
   shieldBroken?: boolean; // 刚破盾标记：破盾后 1 回合内不能续盾（防止胶着）
+  origCol?: number;    // 阵亡前所属列(0/1)：cleanupQueue 移除时记录，tryRevive 复活时回到原列
   // 其他：多词性词的本局选定 role 存于 role
 }
 
