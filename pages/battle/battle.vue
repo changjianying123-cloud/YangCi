@@ -163,13 +163,27 @@
           <view class="mode-card" @click="onStart">
             <text class="mode-icon">🥚</text>
             <text class="mode-name">新手场</text>
-            <text class="mode-desc">挑战 AI · 显示英文 · 免费练习</text>
+            <text class="mode-desc">挑战 AI · {{ rookieDisplay === 'zh' ? '只显中文' : '显示英文' }} · 免费练习</text>
           </view>
           <view class="mode-card gold" @click="enterGold">
             <text class="mode-icon">💰</text>
             <text class="mode-name">金币场</text>
             <text class="mode-desc">真人房间 · 只显中文 · 押注对赌</text>
           </view>
+        </view>
+
+        <!-- 新手场：拼写展示方式 -->
+        <view class="display-toggle">
+          <text class="dt-label">拼写卡牌显示</text>
+          <view class="dt-opts">
+            <text class="dt-opt" :class="{ on: rookieDisplay === 'en' }" @click="rookieDisplay = 'en'">显示英文</text>
+            <text class="dt-opt" :class="{ on: rookieDisplay === 'zh' }" @click="rookieDisplay = 'zh'">只显中文（拼英文）</text>
+          </view>
+          <text class="dt-tip">
+            {{ rookieDisplay === 'en'
+              ? '👀 看着英文单词拼写，适合新手熟悉玩法'
+              : '🀄 只给中文释义，凭记忆拼写出英文才能出招' }}
+          </text>
         </view>
         <text v-if="msg" class="lobby-msg">{{ msg }}</text>
       </view>
@@ -294,10 +308,10 @@
         <view class="spell-panel">
           <text class="sp-title">{{ spellTitle }}</text>
           <view class="sp-mean">
-            <text v-if="!isGold" class="sp-w">{{ spellWord }}</text>
+            <text v-if="!zhOnly" class="sp-w">{{ spellWord }}</text>
             <text class="sp-zh">{{ spellMeaning }}</text>
           </view>
-          <input class="sp-input" v-model="spellInput" :placeholder="isGold ? '凭记忆拼写英文…' : '拼写提示：' + spellHint" focus />
+          <input class="sp-input" v-model="spellInput" :placeholder="zhOnly ? '凭记忆拼写英文…' : '拼写提示：' + spellHint" focus />
           <view class="sp-btns">
             <button class="sp-cancel" @click="spellWin = false">取消</button>
             <button class="sp-go" :disabled="!spellInput.trim()" @click="commitSpell">发动</button>
@@ -324,6 +338,8 @@ export default {
       snap: null,
       starting: false,
       mode: '',        // ''=未选 | 'gold'=金币场（新手场即 onStart 直接开）
+      // 新手场拼写展示：'en'=显示英文看着拼（默认）/ 'zh'=只给中文，凭记忆拼英文
+      rookieDisplay: 'en',
       bet: 10,          // 金币场押注金额
       betOptions: [10, 30, 50, 100, 200],
       // ===== 新房制金币场 =====
@@ -386,6 +402,11 @@ export default {
     },
     isGold() {
       return !!(this.snap && this.snap.mode === 'gold');
+    },
+    // 拼写卡牌是否只显示中文（金币场固定是；新手场由 display 决定）
+    zhOnly() {
+      if (this.isGold) return true;
+      return !!(this.snap && this.snap.display === 'zh');
     },
     isMyGo() {
       return this.deployed && !!this.snap && !this.snap.over && this.snap.currentSide === this.mySideIdx;
@@ -860,7 +881,7 @@ export default {
       this.msg = '';
       this.starting = true;
       try {
-        const res = await battleApi.startBattle();
+        const res = await battleApi.startBattle(this.rookieDisplay);
         this.starting = false;        if (res && res.data) {
           this.battleId = res.data.battleId;
           this.deployed = false;   // 先进入布阵阶段
@@ -1211,6 +1232,13 @@ export default {
 .mode-icon { font-size: 40rpx; }
 .mode-name { font-size: 34rpx; font-weight: 800; display: block; margin: 6rpx 0; }
 .mode-desc { font-size: 24rpx; color: rgba(255,255,255,.85); }
+/* 新手场：拼写显示方式切换 */
+.display-toggle { margin-top: 24rpx; padding: 20rpx; border-radius: 20rpx; background: rgba(0,0,0,.2); }
+.dt-label { display: block; font-size: 26rpx; color: rgba(255,255,255,.9); margin-bottom: 14rpx; font-weight: bold; }
+.dt-opts { display: flex; gap: 16rpx; }
+.dt-opt { flex: 1; text-align: center; padding: 18rpx 10rpx; border-radius: 16rpx; background: rgba(255,255,255,.12); border: 2rpx solid rgba(255,255,255,.25); color: #fff; font-size: 26rpx; }
+.dt-opt.on { background: rgba(103,184,255,.3); border-color: #67b8ff; font-weight: bold; }
+.dt-tip { display: block; margin-top: 14rpx; font-size: 22rpx; color: rgba(255,255,255,.7); line-height: 1.5; }
 /* 押注档位 */
 .bet-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 16rpx; margin: 10rpx 0 24rpx; }
 .bet-item { flex: 0 0 auto; min-width: 110rpx; padding: 18rpx 10rpx; border-radius: 16rpx; background: rgba(0,0,0,.22); border: 2rpx solid rgba(255,255,255,.3); text-align: center; }

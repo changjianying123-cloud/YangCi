@@ -139,7 +139,10 @@ function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: Batt
 }
 
 // ---------- 建局 ----------
-export async function createBattle(playerUserId: number): Promise<{ battleId: number; snap: BattleSnapshot }> {
+export async function createBattle(
+  playerUserId: number,
+  display: 'en' | 'zh' = 'en'
+): Promise<{ battleId: number; snap: BattleSnapshot }> {
   const playerPool = await fetchBattlePool(playerUserId);
   const aiPool = await fetchAiPool();
   const player = formSide(playerPool);
@@ -174,10 +177,15 @@ export async function createBattle(playerUserId: number): Promise<{ battleId: nu
     winner: null,
     reason: '',
     mode: 'rookie',
+    // 拼写展示方式：en=显示英文看着拼（默认）/ zh=只给中文，凭记忆拼英文
+    display: display === 'zh' ? 'zh' : 'en',
     player: { userId: playerUserId, nickname, units: player.units, queue: [...player.queue] },
     enemy: { userId: -1, nickname: '🤖 AI', units: enemy.units, queue: [...enemy.queue] },
     log: ['⚔️ 对战开始！你是先手。拼写正确即可触发词性技能。'],
   };
+  if (display === 'zh') {
+    snap.log.push('🀄 中文模式：只给中文释义，凭记忆拼写出英文才能出招。');
+  }
   BL.scanAutoEnd(snap);
   const [ins] = await pool.execute<ResultSetHeader>(
     `INSERT INTO battles (player_user_id, enemy_user_id, mode, kind, bet, status, state, turn_now, turn_deadline, winner)

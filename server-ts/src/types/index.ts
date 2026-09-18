@@ -164,6 +164,12 @@ export interface BattleSnapshot {
   mode?: 'rookie' | 'gold'; // 对战模式：新手场 / 金币场（真人 PvP）
   bet?: number;             // 金币场押注金额（每方押注，赢家拿走 2×bet）
   roomId?: number;          // 金币场「房间」ID（房间制时结算交给 battleRoomService）
+  /**
+   * 拼写卡牌的展示方式：
+   *  - 'en'（默认）：显示英文单词，看着拼（新手友好）
+   *  - 'zh'：只显示中文释义，凭记忆拼写英文（金币场固定用这个）
+   */
+  display?: 'en' | 'zh';
   player: BattleSide;
   enemy: BattleSide;
   log: string[];

@@ -1,7 +1,12 @@
 import { request } from '@/utils/request.js';
 
-export function startBattle() {
-  return request('/battle/ai/start', { method: 'POST' });
+/** 开始 AI 对战
+ *  display: 'en'（默认，显示英文看着拼）| 'zh'（只给中文，凭记忆拼英文） */
+export function startBattle(display) {
+  return request('/battle/ai/start', {
+    method: 'POST',
+    data: display ? { display } : {},
+  });
 }
 
 export function getBattle(battleId, silent = true) {
