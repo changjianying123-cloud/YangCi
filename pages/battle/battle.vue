@@ -543,23 +543,6 @@ export default {
     iLose() {
       return !!this.snap && this.snap.over && this.snap.winner != null && this.snap.winner !== this.mySideIdx;
     },
-    // 两列（兼容旧存档：无 cols 时按奇偶位拆）
-    colsOf(side) {
-      if (!side) return [[], []];
-      const alive = (id) => { const u = (side.units || []).find((x) => x.cardId === id); return u && !u.dead; };
-      if (Array.isArray(side.cols) && side.cols.length) return side.cols.map((c) => (c || []).filter(alive));
-      const a = []; const b = [];
-      (side.queue || []).filter(alive).forEach((id, i) => { (i % 2 === 0 ? a : b).push(id); });
-      return [a, b];
-    },
-    // 某列前 2 个可行动单位
-    frontOf(side) {
-      const out = [];
-      this.colsOf(side).forEach((c) => {
-        c.slice(0, 2).forEach((id) => { const u = (side.units || []).find((x) => x.cardId === id); if (u && !u.dead) out.push(u); });
-      });
-      return out;
-    },
     // 布阵阶段：按 deployOrder 渲染我方参战单词（全部）
     deployUnits() {
       const us = (this.me && this.me.units) || [];
@@ -1036,6 +1019,23 @@ export default {
       this.deployPick = null;
     },
     roleZh(r) { return ROLE_ZH[r] || r || ''; },
+    // 两列（兼容旧存档：无 cols 时按奇偶位拆）
+    colsOf(side) {
+      if (!side) return [[], []];
+      const alive = (id) => { const u = (side.units || []).find((x) => x.cardId === id); return u && !u.dead; };
+      if (Array.isArray(side.cols) && side.cols.length) return side.cols.map((c) => (c || []).filter(alive));
+      const a = []; const b = [];
+      (side.queue || []).filter(alive).forEach((id, i) => { (i % 2 === 0 ? a : b).push(id); });
+      return [a, b];
+    },
+    // 某列前 2 个可行动单位
+    frontOf(side) {
+      const out = [];
+      this.colsOf(side).forEach((c) => {
+        c.slice(0, 2).forEach((id) => { const u = (side.units || []).find((x) => x.cardId === id); if (u && !u.dead) out.push(u); });
+      });
+      return out;
+    },
     // 布阵完成 → 提交站位（房间制：双方都提交则开战；新手场：直接开战）
     async onDeploy() {
       this.deploying = true;
