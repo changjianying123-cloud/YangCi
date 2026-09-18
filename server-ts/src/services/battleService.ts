@@ -14,6 +14,8 @@ export interface PickedWord extends RowDataPacket {
   phonetic: string | null;
   audio_url: string | null;
   pos: string | null;
+  playCount: number | null;      // 玩耍(英译汉)次数
+  feedSpellCount: number | null; // 喂养拼写次数
 }
 
 export function pickCardId(u: BattleUnit): number {
@@ -24,7 +26,8 @@ export function pickCardId(u: BattleUnit): number {
 async function fetchBattlePool(userId: number): Promise<PickedWord[]> {
   const now = Date.now();
   const [rows] = await pool.execute<PickedWord[]>(
-    `SELECT uc.id AS cardId, w.id AS wordId, uc.level, w.word, w.meaning, w.phonetic, w.audio_url, w.pos
+    `SELECT uc.id AS cardId, w.id AS wordId, uc.level, w.word, w.meaning, w.phonetic, w.audio_url, w.pos,
+            uc.play_count AS playCount, uc.feed_spell_count AS feedSpellCount
      FROM user_cards uc
      JOIN words w ON w.id = uc.word_id
      WHERE uc.user_id = ?
@@ -41,7 +44,8 @@ async function fetchBattlePool(userId: number): Promise<PickedWord[]> {
 async function fetchAiPool(limit = 80): Promise<PickedWord[]> {
   const now = Date.now();
   const [rows] = await pool.execute<PickedWord[]>(
-    `SELECT uc.id AS cardId, w.id AS wordId, uc.level, w.word, w.meaning, w.phonetic, w.audio_url, w.pos
+    `SELECT uc.id AS cardId, w.id AS wordId, uc.level, w.word, w.meaning, w.phonetic, w.audio_url, w.pos,
+            uc.play_count AS playCount, uc.feed_spell_count AS feedSpellCount
      FROM user_cards uc
      JOIN words w ON w.id = uc.word_id
      WHERE (uc.abandoned IS NULL OR uc.abandoned = 0)
@@ -134,6 +138,8 @@ function formSide(poolWords: PickedWord[], sizeOverride?: number): { units: Batt
     dead: false,
     usedSkill: false,
     revived: false,
+    // 从来没拼写过这个单词(玩耍和喂养都没拼过) → 允许复活
+    neverSpelled: (c.playCount || 0) <= 0 && (c.feedSpellCount || 0) <= 0,
   }));
   return { units, queue: units.map((u) => u.cardId) };
 }

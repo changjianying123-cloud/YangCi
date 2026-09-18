@@ -136,6 +136,7 @@ export interface BattleUnit {
   dead: boolean;
   usedSkill: boolean;  // 发动过技能（默认 true；未用过技能就阵亡的可复活）
   revived: boolean;    // 本局是否已复活过一次
+  neverSpelled?: boolean; // 该单词从未被拼写过(玩耍+喂养都没拼过) → 可复活；否则不可复活
   shieldBroken?: boolean; // 刚破盾标记：破盾后 1 回合内不能续盾（防止胶着）
   // 其他：多词性词的本局选定 role 存于 role
 }

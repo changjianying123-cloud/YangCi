@@ -70,9 +70,14 @@ export function unitPosition(side: { queue: number[]; units: BattleUnit[] }, car
 
 // ---------- 阵亡/复活 ----------
 
-/** 可否复活：阵亡 且 发动过技能=false 且 本局还没复活过 */
+/**
+ * 可否复活：阵亡 且 发动过技能=false 且 本局还没复活过
+ *  且【该单词从来没被拼写过】（从未拼写过 → 可复活；拼过一次就不可复活）
+ * neverSpelled 由对战建房时从 user_cards 的 play_count / feed_spell_count 推导。
+ * 未提供该字段时（老快照）按不可复活处理，避免绕过新规则。
+ */
 export function canRevive(u: BattleUnit): boolean {
-  return u.dead && !u.usedSkill && !u.revived;
+  return u.dead && !u.usedSkill && !u.revived && u.neverSpelled === true;
 }
 
 // ---------- 攻击结算（一击必杀制：无血量，屏障=命）----------
