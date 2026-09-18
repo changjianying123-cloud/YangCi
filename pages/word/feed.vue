@@ -62,8 +62,9 @@
               <text>{{ showFullWord ? card.word : '👆 忘记单词了？点击查看' }}</text>
             </view>
 
-            <view v-if="card.mnemonicCount > 0" class="mn-entry" @click="openMnemonics">
-              <text>💡 记不住？看看助记（{{ card.mnemonicCount }}）</text>
+            <view class="mn-entry" @click="openMnemonics">
+              <text v-if="card.mnemonicCount > 0">💡 记不住？看看助记（{{ card.mnemonicCount }}）</text>
+              <text v-else>💡 记不住？添加助记 / 看助记</text>
             </view>
           </view>
 
@@ -73,8 +74,9 @@
             <text class="meaning">{{ card.meaning }}</text>
             <text class="phonetic" v-if="card.phonetic">{{ card.phonetic }}</text>
             <AudioPlayer :src="card.audioUrl" label="听发音" />
-            <view v-if="card.mnemonicCount > 0" class="mn-entry" @click="openMnemonics">
-              <text>💡 查看助记（{{ card.mnemonicCount }}）</text>
+            <view class="mn-entry" @click="openMnemonics">
+              <text v-if="card.mnemonicCount > 0">💡 查看助记（{{ card.mnemonicCount }}）</text>
+              <text v-else>💡 添加助记 / 看助记</text>
             </view>
             <view class="feed-info">
               <text class="deadline">{{ card.nextFeedIn }}</text>

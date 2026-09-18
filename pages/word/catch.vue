@@ -34,8 +34,9 @@
         <text class="hint" @click="showFullWord = !showFullWord">
           {{ showFullWord ? currentWord.word : '👆 点击显示完整单词' }}
         </text>
-        <view v-if="currentWord.mnemonicCount > 0" class="mn-entry" @click="openMnemonics(currentWord)">
-          <text>💡 查看助记（{{ currentWord.mnemonicCount }}）</text>
+        <view class="mn-entry" @click="openMnemonics(currentWord)">
+          <text v-if="currentWord.mnemonicCount > 0">💡 查看助记（{{ currentWord.mnemonicCount }}）</text>
+          <text v-else>💡 添加助记 / 看助记</text>
         </view>
       </view>
 
@@ -53,8 +54,9 @@
         <text class="hint" @click="showFullWord = !showFullWord">
           {{ showFullWord ? currentWord.word : '👆 点击显示完整单词' }}
         </text>
-        <view v-if="currentWord.mnemonicCount > 0" class="mn-entry" @click="openMnemonics(currentWord)">
-          <text>💡 查看助记（{{ currentWord.mnemonicCount }}）</text>
+        <view class="mn-entry" @click="openMnemonics(currentWord)">
+          <text v-if="currentWord.mnemonicCount > 0">💡 查看助记（{{ currentWord.mnemonicCount }}）</text>
+          <text v-else>💡 添加助记 / 看助记</text>
         </view>
       </view>
     </view>

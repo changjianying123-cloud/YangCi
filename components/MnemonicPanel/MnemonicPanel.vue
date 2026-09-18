@@ -21,7 +21,6 @@
           <text class="mn-empty-text">还没有助记</text>
           <text class="mn-empty-sub">来发布第一条，帮其他同学记住这个词</text>
         </view>
-
         <view v-else>
           <view v-for="m in list" :key="m.id" class="mn-item" :class="{ official: m.isOfficial }">
             <view class="mn-item-head">
