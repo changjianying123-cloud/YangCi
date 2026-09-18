@@ -60,7 +60,35 @@ export const wordApi = {
   update: (id, data) => api.put(`/admin/words/${id}`, data),
   remove: (id) => api.delete(`/admin/words/${id}`),
   books: () => api.get('/admin/books'),
+
+  // 助记（一个单词可多个）
+  mnemonics: (wordId) => api.get(`/admin/words/${wordId}/mnemonics`),
+  addMnemonic: (wordId, data) => api.post(`/admin/words/${wordId}/mnemonics`, data),
+  updateMnemonic: (id, data) => api.put(`/admin/mnemonics/${id}`, data),
+  removeMnemonic: (id) => api.delete(`/admin/mnemonics/${id}`),
+
+  // 导入 / 导出
+  importWords: (csv, mode = 'append') => api.post('/admin/words/import', { csv, mode }),
 };
+
+/** 下载导出/模板文件（带 token，走 blob，避免直接开新窗口拿不到鉴权） */
+export async function downloadCsv(path, filename) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    ElMessage.error('下载失败: HTTP ' + res.status);
+    throw new Error('download failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // ===== 用户 =====
 export const userApi = {

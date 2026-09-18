@@ -88,6 +88,7 @@ router.get('/words', async (req: Request, res: Response) => {
       pageSize: Number(req.query.pageSize) || 20,
       keyword: (req.query.keyword as string) || undefined,
       bookCode: (req.query.bookCode as string) || undefined,
+      order: req.query.order === 'desc' ? 'desc' : 'asc',
     });
     ok(res, data);
   } catch (err: unknown) {
@@ -144,6 +145,105 @@ router.delete('/words/:id', async (req: Request, res: Response) => {
 });
 
 // ==================== 用户管理 ====================
+
+// ==================== 单词导入 / 导出 ====================
+// ⚠️ 必须在 /words/:id 之前注册，否则 /words/export 会被当成 id 匹配掉
+
+router.get('/words/export', async (req: Request, res: Response) => {
+  try {
+    const idsParam = (req.query.ids as string) || '';
+    const ids = idsParam
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const { csv, count } = await svc.adminExportWords({
+      ids: ids.length ? ids : undefined,
+      bookCode: (req.query.bookCode as string) || undefined,
+      keyword: (req.query.keyword as string) || undefined,
+    });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="words_${stamp}.csv"`);
+    await logAdminAction(req.userId!, 'word.export', 'word', null, { count, ids: ids.length }, clientIp(req));
+    // 用 Buffer 发送，确保 UTF-8 BOM 不被改写
+    res.send(Buffer.from(csv, 'utf8'));
+  } catch (err: unknown) {
+    fail(res, 500, err instanceof Error ? err.message : '导出失败');
+  }
+});
+
+router.get('/words/import-template', async (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="words_template.csv"');
+  res.send(Buffer.from(svc.adminWordImportTemplate(), 'utf8'));
+});
+
+router.post('/words/import', async (req: Request, res: Response) => {
+  try {
+    const csv = String(req.body.csv || '');
+    if (!csv.trim()) return fail(res, 400, '请提供 CSV 内容');
+    const mode = req.body.mode === 'upsert' ? 'upsert' : 'append';
+    const r = await svc.adminImportWords(csv, mode);
+    await logAdminAction(req.userId!, 'word.import', 'word', null, r, clientIp(req));
+    ok(res, r, `导入完成：新增 ${r.inserted}，更新 ${r.updated}，跳过 ${r.skipped}`);
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '导入失败');
+  }
+});
+
+// ==================== 单词助记（一个单词可多个） ====================
+
+router.get('/words/:id/mnemonics', async (req: Request, res: Response) => {
+  try {
+    ok(res, await svc.adminListMnemonics(Number(req.params.id)));
+  } catch (err: unknown) {
+    fail(res, 500, err instanceof Error ? err.message : '获取助记失败');
+  }
+});
+
+router.post('/words/:id/mnemonics', async (req: Request, res: Response) => {
+  const wordId = Number(req.params.id);
+  try {
+    const item = await svc.adminCreateMnemonic({
+      wordId,
+      title: req.body.title,
+      imageUrl: req.body.imageUrl,
+      content: req.body.content,
+      sort: req.body.sort !== undefined ? Number(req.body.sort) : undefined,
+    });
+    await logAdminAction(req.userId!, 'mnemonic.create', 'word', wordId, { mnemonicId: item.id }, clientIp(req));
+    ok(res, item, '新增成功');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '新增失败');
+  }
+});
+
+router.put('/mnemonics/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  try {
+    const r = await svc.adminUpdateMnemonic(id, {
+      title: req.body.title,
+      imageUrl: req.body.imageUrl,
+      content: req.body.content,
+      sort: req.body.sort !== undefined ? Number(req.body.sort) : undefined,
+    });
+    await logAdminAction(req.userId!, 'mnemonic.update', 'mnemonic', id, req.body, clientIp(req));
+    ok(res, r, '保存成功');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '保存失败');
+  }
+});
+
+router.delete('/mnemonics/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  try {
+    const r = await svc.adminDeleteMnemonic(id);
+    await logAdminAction(req.userId!, 'mnemonic.delete', 'mnemonic', id, null, clientIp(req));
+    ok(res, r, '已删除');
+  } catch (err: unknown) {
+    fail(res, 400, err instanceof Error ? err.message : '删除失败');
+  }
+});
 
 router.get('/users', async (req: Request, res: Response) => {
   try {

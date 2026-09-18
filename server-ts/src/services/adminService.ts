@@ -23,6 +23,8 @@ export async function adminListWords(opts: {
   pageSize?: number;
   keyword?: string;
   bookCode?: string;
+  /** 排序方向：默认 ASC（id 正序）；desc 为倒序 */
+  order?: 'asc' | 'desc';
 }) {
   const page = Math.max(1, opts.page || 1);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize || 20));
@@ -46,13 +48,15 @@ export async function adminListWords(opts: {
   );
   const total = Number((countRows[0] as { total: number })?.total) || 0;
 
+  const orderDir = opts.order === 'desc' ? 'DESC' : 'ASC';
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT w.*, b.book_code, b.book_name,
-            (SELECT COUNT(*) FROM user_cards uc WHERE uc.word_id = w.id) AS captured_count
+            (SELECT COUNT(*) FROM user_cards uc WHERE uc.word_id = w.id) AS captured_count,
+            (SELECT COUNT(*) FROM word_mnemonics wm WHERE wm.word_id = w.id) AS mnemonic_count
      FROM words w
      JOIN books b ON b.id = w.book_id
      ${whereSql}
-     ORDER BY w.id DESC
+     ORDER BY w.id ${orderDir}
      LIMIT ${pageSize} OFFSET ${offset}`,
     params
   );
@@ -70,6 +74,7 @@ export async function adminListWords(opts: {
       exampleSentence: r.example_sentence,
       audioUrl: r.audio_url,
       capturedCount: Number(r.captured_count) || 0,
+      mnemonicCount: Number(r.mnemonic_count) || 0,
     })),
     total,
     page,
@@ -181,6 +186,8 @@ export async function adminDeleteWord(wordId: number) {
   const cardCount = Number((affected[0] as { c: number })?.c) || 0;
 
   // feed_logs 有外键指向 user_cards，先删日志再删卡再删词
+  // 助记表也一并清掉，避免残留孤儿数据
+  await pool.execute('DELETE FROM word_mnemonics WHERE word_id = ?', [wordId]);
   await pool.execute(
     'DELETE fl FROM feed_logs fl JOIN user_cards uc ON uc.id = fl.card_id WHERE uc.word_id = ?',
     [wordId]
@@ -546,4 +553,256 @@ export async function adminOnlineUsers() {
       guest: r.guest_user_id ? { id: r.guest_user_id, nickname: r.guest_nickname } : null,
     })),
   };
+}
+
+// ==================== 单词助记（一个单词可多个） ====================
+
+function mapMnemonic(r: any) {
+  return {
+    id: r.id,
+    wordId: r.word_id,
+    title: r.title,
+    imageUrl: r.image_url,
+    content: r.content,
+    sort: Number(r.sort) || 0,
+    createdAt: toMillis(r.created_at),
+    updatedAt: toMillis(r.updated_at),
+  };
+}
+
+/** 查某单词下的全部助记 */
+export async function adminListMnemonics(wordId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT * FROM word_mnemonics WHERE word_id = ? ORDER BY sort ASC, id ASC',
+    [wordId]
+  );
+  return rows.map(mapMnemonic);
+}
+
+export async function adminCreateMnemonic(data: {
+  wordId: number;
+  title?: string | null;
+  imageUrl?: string | null;
+  content?: string | null;
+  sort?: number;
+}) {
+  if (!data.wordId) throw new Error('缺少单词 ID');
+  const content = (data.content || '').trim();
+  const imageUrl = (data.imageUrl || '').trim();
+  if (!content && !imageUrl) throw new Error('助记内容与图片至少填一项');
+
+  const [w] = await pool.execute<RowDataPacket[]>('SELECT id FROM words WHERE id = ?', [data.wordId]);
+  if (!w[0]) throw new Error('单词不存在');
+
+  const [result] = await pool.execute<ResultSetHeader>(
+    'INSERT INTO word_mnemonics (word_id, title, image_url, content, sort) VALUES (?, ?, ?, ?, ?)',
+    [data.wordId, data.title || null, imageUrl || null, content || null, data.sort ?? 0]
+  );
+  const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM word_mnemonics WHERE id = ?', [result.insertId]);
+  return mapMnemonic(rows[0]);
+}
+
+export async function adminUpdateMnemonic(
+  id: number,
+  data: { title?: string | null; imageUrl?: string | null; content?: string | null; sort?: number }
+) {
+  const [rows] = await pool.execute<RowDataPacket[]>('SELECT * FROM word_mnemonics WHERE id = ?', [id]);
+  if (!rows[0]) throw new Error('助记不存在');
+
+  const sets: string[] = [];
+  const params: any[] = [];
+  const put = (col: string, val: unknown) => {
+    sets.push(`\`${col}\` = ?`);
+    params.push(val);
+  };
+  if (data.title !== undefined) put('title', data.title);
+  if (data.imageUrl !== undefined) put('image_url', data.imageUrl || null);
+  if (data.content !== undefined) put('content', data.content);
+  if (data.sort !== undefined) put('sort', data.sort);
+
+  if (!sets.length) return { updated: false };
+  params.push(id);
+  await pool.execute(`UPDATE word_mnemonics SET ${sets.join(', ')} WHERE id = ?`, params);
+  const [after] = await pool.execute<RowDataPacket[]>('SELECT * FROM word_mnemonics WHERE id = ?', [id]);
+  return { updated: true, item: mapMnemonic(after[0]) };
+}
+
+export async function adminDeleteMnemonic(id: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>('SELECT id FROM word_mnemonics WHERE id = ?', [id]);
+  if (!rows[0]) throw new Error('助记不存在');
+  await pool.execute('DELETE FROM word_mnemonics WHERE id = ?', [id]);
+  return { deleted: true };
+}
+
+// ==================== 单词导入 / 导出 ====================
+
+const EXPORT_COLUMNS = ['word', 'phonetic', 'pos', 'meaning', 'example_sentence'];
+
+/** CSV 单元格转义：含 , " \n 时用双引号包裹 */
+function csvCell(v: unknown): string {
+  const s = v === null || v === undefined ? '' : String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * 导出单词为 CSV 文本。
+ * 传 ids 只导这些；传 bookCode 导整本；都不传导出全部。
+ */
+export async function adminExportWords(opts: { ids?: number[]; bookCode?: string; keyword?: string } = {}) {
+  const where: string[] = [];
+  const params: any[] = [];
+  if (opts.ids && opts.ids.length) {
+    where.push(`w.id IN (${opts.ids.map(() => '?').join(',')})`);
+    params.push(...opts.ids);
+  }
+  if (opts.bookCode) {
+    where.push('b.book_code = ?');
+    params.push(opts.bookCode);
+  }
+  if (opts.keyword) {
+    where.push('(w.word LIKE ? OR w.meaning LIKE ?)');
+    params.push(`%${opts.keyword}%`, `%${opts.keyword}%`);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT w.word, w.phonetic, w.pos, w.meaning, w.example_sentence, b.book_code, b.book_name
+     FROM words w JOIN books b ON b.id = w.book_id
+     ${whereSql}
+     ORDER BY w.id ASC`,
+    params
+  );
+
+  const header = ['book_code', ...EXPORT_COLUMNS].join(',');
+  const lines = rows.map((r) =>
+    [r.book_code, r.word, r.phonetic, r.pos, r.meaning, r.example_sentence].map(csvCell).join(',')
+  );
+  // 带 BOM，Excel 打开不乱码
+  return { csv: '\uFEFF' + [header, ...lines].join('\r\n'), count: rows.length };
+}
+
+/** 生成导入模板（只有表头 + 一行示例） */
+export function adminWordImportTemplate() {
+  const header = ['book_code', ...EXPORT_COLUMNS].join(',');
+  const sample = ['primary', 'apple', '/ˈæpl/', 'noun', '苹果', 'I ate an apple.'].map(csvCell).join(',');
+  return '\uFEFF' + [header, sample].join('\r\n');
+}
+
+/** 解析 CSV（支持双引号包裹、转义引号、逗号/换行） */
+function parseCsv(text: string): string[][] {
+  const src = text.replace(/^\uFEFF/, '');
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      row.push(cell); cell = '';
+    } else if (ch === '\n') {
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else if (ch === '\r') {
+      /* 跳过 CRLF 的 CR */
+    } else {
+      cell += ch;
+    }
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ''));
+}
+
+/**
+ * 导入单词（CSV 文本）。
+ * 列：book_code, word, phonetic, pos, meaning, example_sentence
+ * mode: append 追加（重名跳过）| upsert 覆盖（同词书同词则更新释义等）
+ */
+export async function adminImportWords(csvText: string, mode: 'append' | 'upsert' = 'append') {
+  const table = parseCsv(csvText);
+  if (!table.length) throw new Error('文件为空');
+
+  const header = table[0].map((h) => h.trim().toLowerCase());
+  const idx = (name: string) => header.indexOf(name);
+  const iBook = idx('book_code');
+  const iWord = idx('word');
+  const iMeaning = idx('meaning');
+  if (iBook < 0 || iWord < 0 || iMeaning < 0) {
+    throw new Error('表头缺少必需列：book_code / word / meaning');
+  }
+  const iPhonetic = idx('phonetic');
+  const iPos = idx('pos');
+  const iExample = idx('example_sentence');
+
+  const [bookRows] = await pool.execute<RowDataPacket[]>('SELECT id, book_code FROM books');
+  const bookMap = new Map<string, number>();
+  bookRows.forEach((b) => bookMap.set(String(b.book_code), Number(b.id)));
+
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
+  const errors: { row: number; reason: string }[] = [];
+  const touchedBooks = new Set<number>();
+
+  for (let i = 1; i < table.length; i++) {
+    const r = table[i];
+    const lineNo = i + 1;
+    const get = (n: number) => (n >= 0 && n < r.length ? (r[n] || '').trim() : '');
+
+    const bookCode = get(iBook);
+    const word = get(iWord);
+    const meaning = get(iMeaning);
+    if (!bookCode || !word || !meaning) {
+      errors.push({ row: lineNo, reason: 'book_code / word / meaning 有空值' });
+      skipped++;
+      continue;
+    }
+    const bookId = bookMap.get(bookCode);
+    if (!bookId) {
+      errors.push({ row: lineNo, reason: `词书不存在: ${bookCode}` });
+      skipped++;
+      continue;
+    }
+
+    const phonetic = get(iPhonetic) || null;
+    const pos = get(iPos) || null;
+    const example = get(iExample) || null;
+
+    try {
+      if (mode === 'upsert') {
+        const [upd] = await pool.execute<ResultSetHeader>(
+          `UPDATE words SET phonetic = ?, pos = ?, meaning = ?, example_sentence = ?
+           WHERE book_id = ? AND word = ?`,
+          [phonetic, pos, meaning, example, bookId, word]
+        );
+        if (upd.affectedRows > 0) { updated++; touchedBooks.add(bookId); continue; }
+      }
+      await pool.execute(
+        `INSERT INTO words (book_id, word, phonetic, meaning, example_sentence, pos)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [bookId, word, phonetic, meaning, example, pos]
+      );
+      inserted++;
+      touchedBooks.add(bookId);
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      if (e.code === 'ER_DUP_ENTRY') {
+        errors.push({ row: lineNo, reason: `已存在: ${word}（追加模式跳过）` });
+        skipped++;
+      } else {
+        errors.push({ row: lineNo, reason: e.code || '写入失败' });
+        skipped++;
+      }
+    }
+  }
+
+  for (const bid of touchedBooks) await refreshBookWordCount(bid);
+
+  return { inserted, updated, skipped, total: table.length - 1, errors: errors.slice(0, 50) };
 }

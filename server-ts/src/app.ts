@@ -16,7 +16,9 @@ import { handleDisconnect, handleReconnect, startRoomScanner } from './services/
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// 单词导入走 CSV 文本，放宽体积上限（7195 词全量导入约 1-2MB）
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 app.get('/api/health', (_req, res) => {
   res.json({ code: 200, msg: 'ok' });

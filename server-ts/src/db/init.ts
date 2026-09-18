@@ -273,5 +273,20 @@ export async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 单词助记（一个单词可以有多个助记技巧：图片 + 文字）
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS word_mnemonics (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      word_id INT NOT NULL,
+      title VARCHAR(255) DEFAULT NULL,
+      image_url VARCHAR(512) DEFAULT NULL,
+      content TEXT DEFAULT NULL,
+      sort INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_word (word_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   console.log('MySQL 数据库表初始化完成');
 }
