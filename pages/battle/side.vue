@@ -8,7 +8,7 @@
     </view>
 
     <!-- 两列独立的纵向队列：每列自上而下，列内不与其他列互通（出手/阵亡只在列内前移） -->
-    <view class="grid">
+    <view class="grid" :class="{ 'flip-grid': flip }">
       <view
         v-for="(col, ci) in liveCols"
         :key="'col' + ci"
@@ -82,14 +82,21 @@ export default {
     },
     // 每列可行动的前 N 个
     frontSize() { return 2; },
-    // 渲染用：每列自上而下的卡片；空位补 null 到至少 MIN_ROWS 行
-    // 返回元素形如 { u, isFront }（isFront 按**原始站立序**判定，不受翻转影响）
+    // 渲染用：每列自上而下的卡片
+    // - 我方：顶对齐（空位在下方）
+    // - 敌方(flip)：**底对齐**（空位在上方）+ 列内倒序 —— 让敌军贴着中线，两军对垒
+    // 元素形如 { u, isFront }（isFront 按**原始站立序**判定，不受翻转影响）
     liveCols() {
       const MIN_ROWS = 4;
       return this.standingCols.map((col) => {
         const cells = col.map((u, i) => ({ u, isFront: i < this.frontSize }));
-        if (this.flip) cells.reverse(); // 敌方：最前排靠近中线（下方）显示
-        while (cells.length < MIN_ROWS) cells.push({ u: null, isFront: false });
+        if (this.flip) {
+          // 先倒序（最前排靠下 = 贴中线），再在上方补空位 → 底对齐
+          cells.reverse();
+          while (cells.length < MIN_ROWS) cells.unshift({ u: null, isFront: false });
+        } else {
+          while (cells.length < MIN_ROWS) cells.push({ u: null, isFront: false });
+        }
         return cells;
       });
     },
@@ -121,6 +128,8 @@ export default {
 .troop-chip { font-size: 18rpx; color: #90caf9; background: #16273d; border-radius: 16rpx; padding: 2rpx 12rpx; margin-left: 6rpx; }
 
 .grid { display: flex; flex-direction: row; gap: 16rpx; align-items: flex-start; }
+/* 敌方（翻转）：列底对齐 → 贴着中线，形成两军对垒交汇感 */
+.grid.flip-grid { align-items: flex-end; }
 /* 每一列：独立纵向队列（自上而下） */
 .grid-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12rpx; }
 .cell { width: 100%; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; border-radius: 14rpx; }
