@@ -170,10 +170,13 @@
         <text class="lobby-title">⚔️ 单词对战</text>
         <text class="lobby-sub">派出你「健康&已收服」的单词组队，拼写即出招！</text>
         <view class="mode-list">
-          <view class="mode-card" @click="onStart">
+          <view class="mode-card" :class="{ locked: !aiAffordable() }" @click="onStart">
             <text class="mode-icon">🥚</text>
             <text class="mode-name">新手场</text>
             <text class="mode-desc">挑战 AI · {{ rookieSpellMode === 'zh-spell' ? '拼中文' : '拼英文' }} · 免费练习</text>
+            <text class="mode-req" :class="{ warn: !aiAffordable() }">
+              {{ aiAffordable() ? '出战 ' + aiTroopSize + ' 词（你有 ' + myWordCount + ' 个）' : '需 ' + aiTroopSize + ' 个健康单词（你只有 ' + myWordCount + ' 个）' }}
+            </text>
           </view>
           <view class="mode-card gold" @click="enterGold">
             <text class="mode-icon">💰</text>
@@ -404,6 +407,7 @@ export default {
       // 💰 金币场：每档位所需单词数（后端为准，这里做兜底显示）
       betTroopMap: { 10: 3, 30: 4, 50: 5, 100: 7, 200: 10 },
       myWordCount: 0,   // 我的健康单词数（用于判断哪些档位能开）
+      aiTroopSize: 10,  // 🤖 新手场（AI）出战人数
       // ===== 新房制金币场 =====
       rooms: [],         // 房间列表
       roomsRaw: '',      // 诊断：接口原始返回
@@ -646,6 +650,8 @@ export default {
   },
   onLoad() {
     this.initWs();
+    // 🤖 新手场需要先知道「我有几个健康单词」才能拦下不足 10 个的情况
+    this.loadBets();
     // 断线/重新进入页面时恢复未结束的房间（含布阵阶段）
     this.recoverRoom();
   },
@@ -895,6 +901,10 @@ export default {
       const n = (this.betTroopMap || {})[b];
       return n || 5;
     },
+    // 🤖 新手场（AI）单词够不够（需 aiTroopSize 个）
+    aiAffordable() {
+      return this.myWordCount >= this.aiTroopSize;
+    },
     // 我的单词够不够开这个档位
     betAffordable(b) {
       return this.myWordCount >= this.betTroop(b);
@@ -1030,6 +1040,14 @@ export default {
     },
     async onStart() {
       this.msg = '';
+      // 🤖 新手场：不够 10 个健康单词直接拦下（也避免白跑一次请求）
+      if (!this.aiAffordable()) {
+        uni.showToast({
+          title: `AI 对战需 ${this.aiTroopSize} 个健康单词，你只有 ${this.myWordCount} 个`,
+          icon: 'none',
+        });
+        return;
+      }
       this.starting = true;
       try {
         const res = await battleApi.startBattle(this.rookieSpellMode);
@@ -1469,6 +1487,9 @@ export default {
 .mode-icon { font-size: 40rpx; }
 .mode-name { font-size: 34rpx; font-weight: 800; display: block; margin: 6rpx 0; }
 .mode-desc { font-size: 24rpx; color: rgba(255,255,255,.85); }
+.mode-req { display: block; font-size: 22rpx; color: rgba(255,255,255,.7); margin-top: 8rpx; }
+.mode-req.warn { color: #ffab91; font-weight: bold; }
+.mode-card.locked { opacity: .55; }
 /* 新手场：拼写显示方式切换 */
 .display-toggle { margin-top: 24rpx; padding: 20rpx; border-radius: 20rpx; background: rgba(0,0,0,.2); }
 .dt-label { display: block; font-size: 26rpx; color: rgba(255,255,255,.9); margin-bottom: 14rpx; font-weight: bold; }

@@ -58,8 +58,8 @@ async function login(username) {
   // ===== 2) 词性放宽逻辑（primaryRole 非导出，用行为验证：AI 场起的队伍里 noun,verb 应成动词）=====
   // 直接验证：查一个 pos='noun,verb' 的卡，看它在本局 role
   log('=== 2) 词性放宽：pos 含 verb -> 本局当动词 ===');
-  const token = await login('sprite');
-  ok(!!token, 'sprite 登录成功');
+  const token = await login('chang');
+  ok(!!token, 'chang 登录成功');
   if (token) {
     const r = await req('POST', '/battle/ai/start', { spellMode: 'zh-spell' }, token);
     ok(r.status === 200 && r.body && r.body.code === 200, 'AI 场开战成功（code 200）');
@@ -67,7 +67,7 @@ async function login(username) {
     if (snap && snap.player) {
       const units = snap.player.units || [];
       log('  我的出战 ' + units.length + ' 个: ' + units.map((u) => u.word + '/' + u.role).join(', '));
-      ok(units.length <= BL.AI_TROOP_SIZE, '出战数 <= 10');
+      ok(units.length === BL.AI_TROOP_SIZE, '出战数 = 10');
       ok(units.some((u) => u.role === 'verb'), '队里至少 1 个动词（攻击手）');
       // 敌方（AI）也是 10
       const eu = (snap.enemy && snap.enemy.units) || [];
@@ -93,14 +93,17 @@ async function login(username) {
   }
 
   // ===== 4) 单词不够 -> 拒绝开房 =====
-  log('=== 4) 单词不够时拒绝开高档房 ===');
-  if (token) {
+  log('=== 4) 单词不够时拒绝开高档房（用 sprite，只有 5 词）===');
+  const tokenS = await login('sprite');
+  if (tokenS) {
     // sprite 只有 5 个健康词 -> 押 200（需 10 词）应被拒
-    const r = await req('POST', '/battle/room/create', { bet: 200 }, token);
+    const r = await req('POST', '/battle/room/create', { bet: 200 }, tokenS);
     ok(r.status === 400 || (r.body && r.body.code !== 200), '押 200（需10词）被拒绝');
     log('  返回: ' + JSON.stringify(r.body && (r.body.msg || r.body.message)));
     const m = String((r.body && (r.body.msg || r.body.message)) || '');
     ok(/不够|只有/.test(m), '错误文案提到单词不够');
+  } else {
+    ok(false, 'sprite 登录失败');
   }
 
   // ===== 5) /battle/gold/bets 也带详情 =====

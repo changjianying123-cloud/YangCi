@@ -181,6 +181,10 @@ export async function createBattle(
 
 
   if (player.units.length === 0) throw new Error('你还没有健康的可出战单词，先去收服并喂养一些吧');
+  // 🤖 AI 场：必须凑够 AI_TROOP_SIZE 个健康单词才能开战（不够直接拒绝）
+  if (playerPool.length < BL.AI_TROOP_SIZE) {
+    throw new Error(`AI 对战需要 ${BL.AI_TROOP_SIZE} 个健康单词，你现在只有 ${playerPool.length} 个，先去收服并喂养吧`);
+  }
   // ⭐ 方案 C：词性固定不变，不再自动推举兼职攻击手。
   //   若队伍里一个动词（攻击手）都没有 → 不允许开战（C3）。
   if (!player.units.some((u) => u.role === 'verb')) {
