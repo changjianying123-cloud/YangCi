@@ -9,7 +9,7 @@ import * as core from './battleService';
 //       两边各自布阵 → 开战 → 轮流出手 → 结束时赢家拿 2×bet
 
 /** 可选押注档位 */
-export const BET_OPTIONS = [10, 30, 50, 100, 200];
+export const BET_OPTIONS = [10, 20, 50, 100];
 
 export interface JoinResult {
   status: 'waiting' | 'matched';

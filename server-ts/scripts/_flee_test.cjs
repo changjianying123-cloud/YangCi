@@ -32,7 +32,25 @@ const cfg = { host: '127.0.0.1', user: 'root', password: 'cjy123com', database: 
 
 (async () => {
   const tChang = await login('chang', 'cjy123com');
-  const tSprite = await login('sprite', 'cjy123com');
+  // 对手账号：sprite 只有 5 词，10 档需 10 词 → 自造一个有 12 词的对手
+  const conn0 = await mysql.createConnection(cfg);
+  const now0 = Date.now();
+  const [ex] = await conn0.query('SELECT id FROM users WHERE username = ?', ['foe10']);
+  let foeUid = ex.length ? ex[0].id : null;
+  if (!foeUid) {
+    const crypto = require('crypto');
+    const salt = crypto.randomBytes(8).toString('hex');
+    const hash = salt + ':' + crypto.scryptSync('cjy123com', salt, 64).toString('hex');
+    const [ins] = await conn0.execute('INSERT INTO users (openid, username, password_hash, nickname, coins, created_at) VALUES (?,?,?,?,?,NOW())', ['dev_foe10_' + Date.now(), 'foe10', hash, 'foe10', 9000]);
+    foeUid = ins.insertId;
+  }
+  await conn0.execute('UPDATE users SET coins = 9000 WHERE id = ?', [foeUid]);
+  const [fw] = await conn0.query("SELECT id FROM words WHERE pos IS NOT NULL AND pos<>'' LIMIT 12");
+  for (const w of fw) {
+    await conn0.execute('INSERT IGNORE INTO user_cards (user_id, word_id, level, feed_deadline, feed_window_end, feed_spell_count, play_count, play_correct_count, mood_score, downgrade_count, is_egg, abandoned) VALUES (?,?,1,?,?,0,0,0,10,0,0,0)', [foeUid, w.id, now0 + 9999999, now0 + 99999999]);
+  }
+  await conn0.end();
+  const tSprite = await login('foe10', 'cjy123com');
   ok(!!tChang && !!tSprite, '账号登录');
 
   log('\n=== ① AI 场逃跑 ===');
@@ -58,20 +76,19 @@ const cfg = { host: '127.0.0.1', user: 'root', password: 'cjy123com', database: 
     ok(f3.code !== 200, '他人逃跑被拒', f3.code);
   }
 
-  log('\n=== ③ 金币场（房间制）逃跑 ===');
-  const conn = await mysql.createConnection(cfg);
+  log('\n=== ③ 金币场（房间制）逃跑 ===');  const conn = await mysql.createConnection(cfg);
   try {
     // 记录开局前金币
     const [[uC0]] = await conn.query('SELECT coins FROM users WHERE username = ?', ['chang']);
-    const [[uS0]] = await conn.query('SELECT coins FROM users WHERE username = ?', ['sprite']);
-    const bet = 50;
-    log(`  开局前: chang=${uC0.coins} sprite=${uS0.coins} 押注=${bet}`);
+    const [[uS0]] = await conn.query('SELECT coins FROM users WHERE username = ?', ['foe10']);
+    const bet = 10;
+    log(`  开局前: chang=${uC0.coins} foe10=${uS0.coins} 押注=${bet}`);
 
     const c = await api('/battle/room/create', { method: 'POST', body: JSON.stringify({ bet }) }, tChang);
     ok(c.code === 200, 'chang 建房', c.msg);
     const rid = c.data.room.id;
     const j = await api(`/battle/room/${rid}/join`, { method: 'POST', body: '{}' }, tSprite);
-    ok(j.code === 200, 'sprite 坐下', j.msg);
+    ok(j.code === 200, 'foe10 坐下', j.msg);
     const r1 = await api(`/battle/room/${rid}/ready`, { method: 'POST', body: JSON.stringify({ ready: true }) }, tChang);
     const r2 = await api(`/battle/room/${rid}/ready`, { method: 'POST', body: JSON.stringify({ ready: true }) }, tSprite);
     ok(r1.code === 200 && r2.code === 200, '双方准备 → 布阵/开战', { r1: r1.code, r2: r2.code });
@@ -104,17 +121,17 @@ const cfg = { host: '127.0.0.1', user: 'root', password: 'cjy123com', database: 
       log('  房间终态: ' + JSON.stringify(roomAfter[0]));
       ok(roomAfter[0].status === 'finished', '房间 finished');
       // sprite(id=16) 应赢底池
-      const [[uS1]] = await conn.query('SELECT coins FROM users WHERE username = ?', ['sprite']);
+      const [[uS1]] = await conn.query('SELECT coins FROM users WHERE username = ?', ['foe10']);
       const [[uC1]] = await conn.query('SELECT coins FROM users WHERE username = ?', ['chang']);
-      log(`  开局后: chang=${uC1.coins} sprite=${uS1.coins}`);
+      log(`  开局后: chang=${uC1.coins} foe10=${uS1.coins}`);
       const expectS = uS0.coins - bet + bet * 2; // 未扣押时=原值-押注+底池
       const expectC = uC0.coins - bet;
-      log(`  期望(未扣押口径): chang=${expectC} sprite=${expectS}`);
-      ok(uS1.coins > uS0.coins, 'sprite 金币增加（赢了底池）', { before: uS0.coins, after: uS1.coins });
+      log(`  期望(未扣押口径): chang=${expectC} foe10=${expectS}`);
+      ok(uS1.coins > uS0.coins, 'foe10 金币增加（赢了底池）', { before: uS0.coins, after: uS1.coins });
       ok(uC1.coins < uC0.coins, 'chang 金币减少（输了押注）', { before: uC0.coins, after: uC1.coins });
       const winnerUid = roomAfter[0].winner_user_id;
-      const [[spriteRow]] = await conn.query('SELECT id FROM users WHERE username = ?', ['sprite']);
-      ok(winnerUid === spriteRow.id, 'winner_user_id = sprite', { winnerUid, sprite: spriteRow.id });
+      const [[spriteRow]] = await conn.query('SELECT id FROM users WHERE username = ?', ['foe10']);
+      ok(winnerUid === spriteRow.id, 'winner_user_id = foe10', { winnerUid, foe10: spriteRow.id });
     }
   } finally {
     await conn.end();

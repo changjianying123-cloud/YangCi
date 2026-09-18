@@ -49,24 +49,15 @@ const msgOf = (r) => String((r.body && (r.body.msg || r.body.message)) || '');
     ok(/10|健康单词|不够/.test(msgOf(ai)), 'AI 场错误文案提到缺单词');
 
     // ② 金币场高档应被拒
-    const c200 = await req('POST', '/battle/room/create', { bet: 200 }, ts);
-    log('  room/create(200) -> ' + msgOf(c200));
-    ok(c200.status === 400 || (c200.body && c200.body.code !== 200), '押 200 被拒绝');
+    const c200 = await req('POST', '/battle/room/create', { bet: 20 }, ts);
+    log('  room/create(20) -> ' + msgOf(c200));
+    ok(c200.status === 400 || (c200.body && c200.body.code !== 200), '押 20 被拒绝');
     ok(/不够|只有/.test(msgOf(c200)), '文案提到单词不够');
 
-    // ③ 金币场最低档（需 3 词，sprite 有 5）应能开
+    // ③ 最低档 10（需 10 词）也应为 sprite 拒（只有 5 词）
     const c10 = await req('POST', '/battle/room/create', { bet: 10 }, ts);
     log('  room/create(10) -> status=' + c10.status + ' code=' + (c10.body && c10.body.code));
-    ok(c10.status === 200 && c10.body && c10.body.code === 200, '押 10（需3词）能开房');
-    if (c10.status === 200) {
-      const rid = c10.body.data && c10.body.data.room && c10.body.data.room.id;
-      await req('POST', `/battle/room/${rid}/leave`, { reason: 'leave' }, ts);
-    }
-
-    // ④ 金币场 100 档（需 7 词）应被拒
-    const c100 = await req('POST', '/battle/room/create', { bet: 100 }, ts);
-    log('  room/create(100) -> ' + msgOf(c100));
-    ok(c100.status === 400 || (c100.body && c100.body.code !== 200), '押 100（需7词）被拒绝');
+    ok(c10.status === 400 || (c10.body && c10.body.code !== 200), 'sprite 押 10（需10词）被拒');
   }
 
   // ===== chang：有 10 个健康词 =====
@@ -87,10 +78,10 @@ const msgOf = (r) => String((r.body && (r.body.msg || r.body.message)) || '');
         ok(snap.player.units.length === 10, '我方 10 词');
         ok(snap.enemy && snap.enemy.units.length === 10, '敌方 10 词');
       }
-      // 押 200（需 10 词）应能开
-      const c200 = await req('POST', '/battle/room/create', { bet: 200 }, tc);
-      log('  room/create(200) -> status=' + c200.status + ' code=' + (c200.body && c200.body.code));
-      ok(c200.status === 200 && c200.body && c200.body.code === 200, 'chang 押 200（需10词）能开房');
+      // 押 10（需 10 词）应能开
+      const c200 = await req('POST', '/battle/room/create', { bet: 10 }, tc);
+      log('  room/create(10) -> status=' + c200.status + ' code=' + (c200.body && c200.body.code));
+      ok(c200.status === 200 && c200.body && c200.body.code === 200, 'chang 押 10（需10词）能开房');
       if (c200.status === 200) {
         const rid = c200.body.data && c200.body.data.room && c200.body.data.room.id;
         await req('POST', `/battle/room/${rid}/leave`, { reason: 'leave' }, tc);

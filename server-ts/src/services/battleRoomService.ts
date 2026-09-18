@@ -5,7 +5,7 @@ import * as core from './battleService';
 import * as BL from '../utils/battleLogic';
 import { broadcastRoom, broadcastAll, pushToUser, isUserOnline } from '../ws/hub';
 
-export const BET_OPTIONS = [10, 30, 50, 100, 200];
+export const BET_OPTIONS = [10, 20, 50, 100];
 
 /** 布阵时长：2 分钟 */
 export const DEPLOY_MS = 2 * 60 * 1000;
